@@ -1,0 +1,9 @@
+Chronovisor is an experimental framework for exploring time-aware computation inside transformer models. The core idea is that a model shouldn’t just react token-by-token but should maintain a sense of internal temporal flow — micro-turns, internal adjustments, and phase relationships that evolve while the model is thinking rather than only when it is outputting tokens.
+
+The system introduces a lightweight temporal layer that sits beside the normal attention stack. It tracks resonance between tokens, coherence shifts, and local attractor states. During each micro-turn, the model updates an internal “phase lens” that slightly alters how it reads the next token. This gives us a way to observe and influence stability, drift, and mode changes without modifying the frozen weights.
+
+Instead of fast weights or slot-based memory, Chronovisor treats the hidden space as a dynamic field. Patterns can settle, destabilize, or re-align depending on how the lens evolves. The aim isn’t to store arbitrary long-term memory but to understand how transient internal structure behaves when you let the model iterate inside its own turn.
+
+We use this to study coherence loss, internal friction, temporal grounding, and the conditions under which an inference path stabilizes instead of collapsing. It’s a controlled sandbox for everything we keep seeing in our DRAI, AOSL, and Memory Tender experiments — the stuff that happens between the lines of the usual transformer math.
+
+Still early, still rough, but already useful for watching the model’s “inner motion” rather than just its outputs.
