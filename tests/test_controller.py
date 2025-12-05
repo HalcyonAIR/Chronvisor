@@ -6,7 +6,7 @@ from chronovisor.controller import Controller
 class MockExpert:
     """Minimal expert stub with sense() method."""
 
-    def sense(self):
+    def sense(self, lens_state):
         return {"stub": True}
 
 
@@ -93,7 +93,7 @@ def test_tick_collects_expert_signals():
     call_count = 0
 
     class CountingExpert:
-        def sense(self):
+        def sense(self, lens_state):
             nonlocal call_count
             call_count += 1
             return {}

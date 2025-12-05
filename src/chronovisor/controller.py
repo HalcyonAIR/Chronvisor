@@ -69,7 +69,7 @@ class Controller:
             self.macro_clock += 1
 
         # Collect expert signals
-        expert_signals = [expert.sense() for expert in experts]
+        expert_signals = [expert.sense(lens) for expert in experts]
 
         # Compute delta coherence (placeholder)
         delta = self.compute_delta_coherence(expert_signals)
