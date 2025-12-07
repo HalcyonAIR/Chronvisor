@@ -442,3 +442,134 @@ class TestGovernorWithCulture:
         assert isinstance(gate_spawn, bool)
         assert isinstance(gate_cull, bool)
         assert mode in ["normal", "outside_box"]
+
+
+class TestPressureFramework:
+    """Tests for the pressure-based dynamics."""
+
+    def setup_method(self):
+        reset_id_counters()
+        random.seed(42)
+
+    def test_expert_has_pressure_constants(self):
+        """Expert has k_home and k_safety constants."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        assert hasattr(expert, "k_home")
+        assert hasattr(expert, "k_safety")
+        assert expert.k_home == 0.01
+        assert expert.k_safety == 0.1
+
+    def test_motif_has_alpha_theta(self):
+        """Motif has alpha_theta for pressure stiffness."""
+        motif = Motif(
+            motif_id=1, name="M1",
+            theta_center=50.0, S=0.3,
+            mean_lambda=0.1, mean_abs_v=0.5, var_theta=10.0,
+        )
+
+        assert hasattr(motif, "alpha_theta")
+        assert motif.alpha_theta == 0.01
+
+    def test_expert_has_motif_affinity(self):
+        """Expert has motif_affinity dict."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        assert hasattr(expert, "motif_affinity")
+        assert isinstance(expert.motif_affinity, dict)
+
+    def test_tick_fast_returns_pressure_diagnostics(self):
+        """tick_fast returns F_drift, F_home, F_culture, F_total."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1, theta=100.0, theta_home=0.0,
+        )
+
+        info = expert.tick_fast(psi=0.0)
+
+        assert "F_drift" in info
+        assert "F_home" in info
+        assert "F_culture" in info
+        assert "F_total" in info
+
+    def test_home_pressure_pulls_toward_home(self):
+        """Home pressure pulls expert toward theta_home."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            theta=100.0,
+            theta_home=0.0,
+            k_home=0.1,  # Strong home pressure
+        )
+
+        info = expert.tick_fast(psi=0.0, dv=0.0, noise_v_std=0.0)
+
+        # Home pressure should be negative (pulling back toward 0)
+        assert info["F_home"] < 0
+
+    def test_cultural_pressure_with_motifs(self):
+        """Cultural pressure pulls expert toward motif center."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            theta=100.0, theta_home=0.0,
+        )
+
+        # Create motif at theta=50
+        motif = Motif(
+            motif_id=1, name="M1",
+            theta_center=50.0, S=0.5,
+            mean_lambda=0.1, mean_abs_v=0.5, var_theta=10.0,
+            alpha_theta=0.1,  # Strong cultural pressure
+        )
+
+        # Affiliate expert with motif
+        expert.motif_ids.add(1)
+        expert.motif_affinity[1] = 0.5
+
+        motifs_dict = {1: motif}
+        info = expert.tick_fast(psi=0.0, dv=0.0, noise_v_std=0.0, motifs=motifs_dict)
+
+        # Cultural pressure should pull toward motif (theta=50, expert at 100)
+        assert info["F_culture"] < 0  # Pulling back toward 50
+
+    def test_offspring_inherits_pressure_constants(self):
+        """Offspring inherits k_home and k_safety from parent."""
+        parent = CulturalExpert(
+            name="Parent", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            k_home=0.05,
+            k_safety=0.2,
+        )
+
+        offspring = parent.spawn_offspring(current_tick=100)
+
+        assert offspring.k_home == 0.05
+        assert offspring.k_safety == 0.2
+
+    def test_teaching_sets_motif_affinity(self):
+        """Teaching sets motif_affinity for each affiliated motif."""
+        controller = CulturalController(D_culture=100.0)
+
+        motif = Motif(
+            motif_id=1, name="M1",
+            theta_center=50.0, S=0.5,
+            mean_lambda=0.1, mean_abs_v=0.5, var_theta=10.0,
+        )
+        controller.motifs.append(motif)
+
+        expert = CulturalExpert(
+            name="E1", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1, theta=50.0,
+        )
+
+        controller._apply_teaching([expert])
+
+        assert 1 in expert.motif_affinity
+        assert expert.motif_affinity[1] > 0

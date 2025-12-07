@@ -77,11 +77,18 @@ def reset_id_counters():
 @dataclass
 class CulturalExpert:
     """
-    Expert with cultural capabilities.
+    Expert with cultural capabilities and pressure-based dynamics.
 
     Extends BifurcatingExpert with:
     - motif_ids: which motifs this expert currently aligns with
+    - motif_affinity: strength of connection to each motif
     - cultural_capital: bonus from strong motif membership
+
+    Dynamics governed by pressure fields:
+    - F_drift: expert's own belief (lambda * alignment)
+    - F_home: rubber band to theta_home
+    - F_culture: pull toward affiliated motifs
+    - F_safety: (stub) avoidance of unsafe regions
     """
 
     name: str
@@ -116,7 +123,12 @@ class CulturalExpert:
 
     # Cultural layer (V6)
     motif_ids: Set[int] = field(default_factory=set)
+    motif_affinity: Dict[int, float] = field(default_factory=dict)  # motif_id -> affinity
     cultural_capital: float = 0.0  # Bonus from motif membership
+
+    # Pressure constants (can be overridden per-expert if needed)
+    k_home: float = 0.01  # Home pressure stiffness
+    k_safety: float = 0.1  # Safety pressure stiffness (stub)
 
     def drift_distance(self) -> float:
         """How far has this expert drifted from home?"""
@@ -132,8 +144,17 @@ class CulturalExpert:
         dv: float = 0.05,
         noise_phi_std: float = 0.01,
         noise_v_std: float = 0.01,
+        motifs: Optional[Dict[int, "Motif"]] = None,
     ) -> Dict[str, float]:
-        """Fast clock update."""
+        """
+        Fast clock update using pressure-field dynamics.
+
+        Pressures:
+        - F_drift: expert's own intent (lambda * alignment)
+        - F_home: rubber band to birth position
+        - F_culture: pull toward affiliated motifs
+        - F_safety: avoidance of unsafe regions (stub)
+        """
         # Phase update
         self.phi = (
             self.phi + self.omega + random.gauss(0.0, noise_phi_std)
@@ -147,13 +168,32 @@ class CulturalExpert:
         self.macro_align_sum += a_k
         self.macro_align_count += 1
 
-        # Velocity and tilt update
-        self.v = (
-            self.v
-            + self.lambd * a_k
-            - dv * self.v
-            + random.gauss(0.0, noise_v_std)
-        )
+        # === PRESSURE FRAMEWORK ===
+
+        # 1. Drift pressure (expert's own belief/intent)
+        F_drift = self.lambd * a_k
+
+        # 2. Home pressure (rubber band to theta_home)
+        F_home = -self.k_home * (self.theta - self.theta_home)
+
+        # 3. Cultural pressure (pull toward affiliated motifs)
+        F_culture = 0.0
+        if motifs and self.motif_ids:
+            for motif_id in self.motif_ids:
+                if motif_id in motifs:
+                    m = motifs[motif_id]
+                    w = self.motif_affinity.get(motif_id, 0.0)
+                    # Pull toward motif center, weighted by affinity and motif's alpha
+                    F_culture += -w * m.alpha_theta * (self.theta - m.theta_center)
+
+        # 4. Safety pressure (stub - can be expanded later)
+        F_safety = 0.0
+
+        # Total pressure
+        F_total = F_drift + F_home + F_culture + F_safety
+
+        # Apply dynamics: v += F_total - damping + noise
+        self.v = self.v + F_total - dv * self.v + random.gauss(0.0, noise_v_std)
         self.theta = self.theta + self.v
 
         # Observables
@@ -174,6 +214,11 @@ class CulturalExpert:
             "generation": self.generation,
             "cultural_capital": self.cultural_capital,
             "num_motifs": len(self.motif_ids),
+            # Pressure diagnostics
+            "F_drift": F_drift,
+            "F_home": F_home,
+            "F_culture": F_culture,
+            "F_total": F_total,
         }
 
     def do_micro_update(
@@ -237,9 +282,13 @@ class CulturalExpert:
             generation=self.generation + 1,
             parent_id=self.expert_id,
             birth_tick=current_tick,
-            # Offspring may inherit parent's cultural affiliations (weakly)
-            motif_ids=set(),  # Start fresh culturally
+            # Start fresh culturally
+            motif_ids=set(),
+            motif_affinity={},
             cultural_capital=0.0,
+            # Inherit pressure constants from parent
+            k_home=self.k_home,
+            k_safety=self.k_safety,
         )
 
         return offspring
@@ -257,7 +306,8 @@ class Motif:
     A shared strategy that emerges from clusters of successful experts.
 
     Motifs are slow, smoothed summaries of successful local cultures.
-    They act as "teachers" that nudge nearby experts toward proven behaviors.
+    They act as "teachers" that exert cultural pressure on nearby experts,
+    pulling them toward proven behaviors in theta-space.
     """
 
     motif_id: int
@@ -273,6 +323,9 @@ class Motif:
     mean_lambda: float  # Typical damping of this culture
     mean_abs_v: float  # Typical velocity magnitude
     var_theta: float  # How spread out the cluster is
+
+    # Pressure parameters
+    alpha_theta: float = 0.01  # Cultural pressure stiffness (how strongly this motif pulls)
 
     # Support set
     support_ids: Set[int] = field(default_factory=set)
@@ -580,14 +633,20 @@ class CulturalController:
         """
         Apply motif->expert teaching.
 
-        For each expert, find nearby motifs and nudge toward them.
+        For each expert, find nearby motifs and:
+        1. Record affiliation (motif_ids)
+        2. Set motif_affinity (weight for pressure-based dynamics)
+        3. Nudge lambda toward motif's style
+        4. Accrue cultural capital
+
         Returns number of experts taught.
         """
         taught_count = 0
 
         for expert in experts:
-            # Clear old motif affiliations
+            # Clear old motif affiliations and affinities
             expert.motif_ids.clear()
+            expert.motif_affinity.clear()
             expert.cultural_capital = 0.0
 
             nearby_motifs = []
@@ -608,29 +667,29 @@ class CulturalController:
                 # Record affiliation
                 expert.motif_ids.add(motif.motif_id)
 
-                # Compute teaching weight
+                # Compute affinity weight (used by pressure-based dynamics)
                 proximity = 1.0 - distance / self.D_culture
                 reliability_weight = max(0.0, motif.S)
                 weight = proximity * reliability_weight
 
+                # Store affinity for use in tick_fast() pressure calculations
+                expert.motif_affinity[motif.motif_id] = weight
+
                 # Determine learning rate
                 eta_lambda = self.eta_cultural_lambda
-                eta_theta = self.eta_cultural_theta
 
                 # In outside_box mode, low-s experts learn faster
                 if self.boosted_learning_for_low_s and expert.s < 0.0:
                     eta_lambda *= 2.0
-                    eta_theta *= 2.0
 
-                # Nudge lambda toward motif's style
+                # Nudge lambda toward motif's style (direct teaching)
                 expert.lambd = (
                     (1 - eta_lambda * weight) * expert.lambd
                     + eta_lambda * weight * motif.mean_lambda
                 )
 
-                # Soft pull in theta (very weak)
-                pull = eta_theta * weight * (motif.theta_center - expert.theta)
-                expert.theta += pull
+                # Note: theta pull now happens via F_culture in pressure dynamics
+                # during every fast tick, not just during cultural tick
 
                 # Cultural capital accrues from strong motif membership
                 expert.cultural_capital += (
@@ -870,13 +929,17 @@ class CulturalEvolutionaryController:
             self.noise_v_std,
         )
 
-        # Fast update for each expert
+        # Build motifs dict for pressure-based dynamics
+        motifs_dict = {m.motif_id: m for m in self.cultural.motifs}
+
+        # Fast update for each expert (with pressure-based dynamics)
         expert_signals = [
             e.tick_fast(
                 psi=psi,
                 dv=self.dv,
                 noise_phi_std=effective["noise_phi_std"],
                 noise_v_std=effective["noise_v_std"],
+                motifs=motifs_dict,
             )
             for e in self.experts
         ]
