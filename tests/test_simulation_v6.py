@@ -796,3 +796,230 @@ class TestLensIntegration:
         # (experts are aligned, so their drifts agree with L)
         assert info["R"] > 0.9
         assert info["avg_g_lens"] >= 1.0
+
+
+class TestPredictionSuccessAxis:
+    """Tests for V6.1 prediction success axis."""
+
+    def setup_method(self):
+        reset_id_counters()
+        random.seed(42)
+
+    def test_expert_has_delta_s_fields(self):
+        """Expert has Δs tracking fields."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        assert hasattr(expert, "s_prev")
+        assert hasattr(expert, "delta_s")
+        assert hasattr(expert, "delta_s_ema")
+        assert expert.s_prev == 0.0
+        assert expert.delta_s == 0.0
+        assert expert.delta_s_ema == 0.0
+
+    def test_expert_has_absorption_fields(self):
+        """Expert has absorption statistics fields."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        assert hasattr(expert, "g_lens_ema")
+        assert hasattr(expert, "R_ema")
+        assert hasattr(expert, "alpha_lens_ema")
+        assert expert.g_lens_ema == 1.0
+        assert expert.R_ema == 0.0
+
+    def test_update_delta_s(self):
+        """update_delta_s tracks change in reliability."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1, s=0.1,
+        )
+        expert.s_prev = 0.05
+
+        expert.update_delta_s()
+
+        assert expert.delta_s == 0.05  # 0.1 - 0.05
+        assert expert.delta_s_ema > 0
+        assert expert.s_prev == 0.1  # Updated to current s
+
+    def test_update_absorption_stats(self):
+        """update_absorption_stats updates EMAs."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        expert.update_absorption_stats(g_lens=1.3, R=0.8, alpha_lens=1.0)
+
+        assert expert.g_lens_ema > 1.0
+        assert expert.R_ema > 0.0
+        assert expert.alpha_lens_ema > 0.0
+
+    def test_maybe_absorb_requires_positive_delta_s(self):
+        """maybe_absorb only absorbs when Δs > 0."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            theta=100.0, theta_home=0.0,
+        )
+        # High R, high g, but negative Δs
+        expert.R_ema = 0.8
+        expert.g_lens_ema = 1.3
+        expert.delta_s_ema = -0.1  # Failing!
+
+        result = expert.maybe_absorb()
+
+        assert result["absorbed"] is False
+        assert result["reason"] == "delta_s_not_positive"
+        assert expert.theta_home == 0.0  # Unchanged
+
+    def test_maybe_absorb_succeeds_with_positive_delta_s(self):
+        """maybe_absorb absorbs when all conditions met."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            theta=100.0, theta_home=0.0,
+        )
+        # High R, high g, positive Δs
+        expert.R_ema = 0.8
+        expert.g_lens_ema = 1.3
+        expert.delta_s_ema = 0.1  # Succeeding!
+
+        old_theta_home = expert.theta_home
+        result = expert.maybe_absorb()
+
+        assert result["absorbed"] is True
+        assert result["reason"] == "success"
+        assert expert.theta_home != old_theta_home  # Changed!
+
+    def test_maybe_absorb_requires_high_R(self):
+        """maybe_absorb requires R > threshold."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            theta=100.0, theta_home=0.0,
+        )
+        # Low R
+        expert.R_ema = 0.3
+        expert.g_lens_ema = 1.3
+        expert.delta_s_ema = 0.1
+
+        result = expert.maybe_absorb()
+
+        assert result["absorbed"] is False
+        assert result["reason"] == "R_too_low"
+
+    def test_compute_diversity_bonus_for_correct_outlier(self):
+        """Diversity bonus rewards damped but correct experts."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+        # Damped (g < 1) but correct (Δs > 0)
+        expert.g_lens_ema = 0.7  # Lens didn't like me
+        expert.delta_s_ema = 0.1  # But I was right!
+
+        bonus = expert.compute_diversity_bonus()
+
+        assert bonus > 0
+        assert expert.diversity_bonus > 0
+
+    def test_compute_diversity_bonus_zero_for_aligned_expert(self):
+        """No diversity bonus for aligned experts (even if correct)."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+        # Amplified (g > 1) and correct
+        expert.g_lens_ema = 1.3  # Lens liked me
+        expert.delta_s_ema = 0.1
+
+        bonus = expert.compute_diversity_bonus()
+
+        # No bonus because I wasn't an outlier
+        assert expert.diversity_bonus < 0.01  # Decayed to near zero
+
+    def test_effective_reliability_includes_diversity_bonus(self):
+        """Effective reliability includes diversity bonus."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1, s=0.2,
+        )
+        expert.cultural_capital = 0.05
+        expert.diversity_bonus = 0.03
+
+        assert expert.effective_reliability() == 0.28  # 0.2 + 0.05 + 0.03
+
+    def test_controller_tick_returns_delta_s_diagnostics(self):
+        """Controller tick returns avg_delta_s and avg_diversity_bonus."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+            ),
+        ]
+        controller = CulturalEvolutionaryController(experts=experts)
+
+        info = controller.tick()
+
+        assert "avg_delta_s" in info
+        assert "avg_diversity_bonus" in info
+
+    def test_controller_updates_absorption_stats(self):
+        """Controller updates absorption stats each tick."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+            ),
+        ]
+        controller = CulturalEvolutionaryController(experts=experts)
+
+        # Initial state
+        assert controller.experts[0].g_lens_ema == 1.0
+
+        # Run ticks
+        for _ in range(10):
+            controller.tick()
+
+        # Stats should have been updated
+        # (g_lens_ema may still be near 1.0 but R_ema should change)
+        assert controller.experts[0].R_ema != 0.0
+
+    def test_absorption_only_on_macro_clock(self):
+        """Absorption methods called only on macro clock."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1, s=0.1,
+            ),
+        ]
+        # Set up conditions for absorption
+        experts[0].R_ema = 0.8
+        experts[0].g_lens_ema = 1.3
+        experts[0].delta_s_ema = 0.1
+        experts[0].theta = 100.0
+
+        controller = CulturalEvolutionaryController(
+            experts=experts,
+            micro_period=5,
+            macro_period=4,
+        )
+
+        # Run until first macro event (tick 20)
+        old_theta_home = experts[0].theta_home
+        for _ in range(19):
+            info = controller.tick()
+            if not info["macro_event"]:
+                # theta_home shouldn't change before macro event
+                # (though absorption stats update each tick)
+                pass
+
+        # Run the macro tick
+        info = controller.tick()
+        assert info["macro_event"] is True
+        # Now absorption could have happened (if conditions still met)

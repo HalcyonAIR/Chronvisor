@@ -202,13 +202,150 @@ class CulturalExpert:
     k_home: float = 0.01  # Home pressure stiffness
     k_safety: float = 0.1  # Safety pressure stiffness (stub)
 
+    # === V6.1: Prediction Success Axis ===
+    # Δs tracking (prediction success)
+    s_prev: float = 0.0           # Previous s value
+    delta_s: float = 0.0          # Recent Δs
+    delta_s_ema: float = 0.0      # Smoothed Δs for gating
+
+    # Absorption statistics (lens feedback)
+    g_lens_ema: float = 1.0       # EMA of lens gain
+    R_ema: float = 0.0            # EMA of coherence
+    alpha_lens_ema: float = 0.0   # EMA of lens alignment
+
+    # Absorption rates
+    eta_theta_home: float = 0.02  # Slow identity shift
+    eta_k_home: float = 0.01      # Very slow adventurousness change
+    eta_absorb_stats: float = 0.1 # EMA rate for absorption stats
+    eta_delta_s: float = 0.2      # EMA rate for Δs
+
+    # Diversity bonus
+    diversity_bonus: float = 0.0  # Reward for correct outliers
+    diversity_bonus_rate: float = 0.05
+
     def drift_distance(self) -> float:
         """How far has this expert drifted from home?"""
         return abs(self.theta - self.theta_home)
 
     def effective_reliability(self) -> float:
-        """Reliability including cultural capital bonus."""
-        return self.s + self.cultural_capital
+        """Reliability including cultural capital and diversity bonus."""
+        return self.s + self.cultural_capital + self.diversity_bonus
+
+    # === V6.1: Prediction Success Methods ===
+
+    def update_delta_s(self):
+        """Track change in reliability (called after s updates)."""
+        self.delta_s = self.s - self.s_prev
+        self.delta_s_ema = (1 - self.eta_delta_s) * self.delta_s_ema + self.eta_delta_s * self.delta_s
+        self.s_prev = self.s
+
+    def update_absorption_stats(self, g_lens: float, R: float, alpha_lens: float):
+        """Update running statistics for absorption decisions."""
+        eta = self.eta_absorb_stats
+        self.g_lens_ema = (1 - eta) * self.g_lens_ema + eta * g_lens
+        self.R_ema = (1 - eta) * self.R_ema + eta * R
+        self.alpha_lens_ema = (1 - eta) * self.alpha_lens_ema + eta * alpha_lens
+
+    def maybe_absorb(self) -> Dict[str, float]:
+        """
+        Absorb lens pressure into deep parameters IF conditions met.
+
+        Three conditions required:
+        1. System is coherent (R high)
+        2. Lens is giving clear signal (g ≠ 1)
+        3. This expert is improving (Δs > 0) ← THE KEY GATE
+
+        Returns diagnostics dict.
+        """
+        absorb_info = {
+            "absorbed": False,
+            "delta_theta_home": 0.0,
+            "delta_k_home": 0.0,
+            "reason": "none",
+        }
+
+        # Gating conditions
+        R_threshold = 0.5
+        g_threshold = 0.05
+        delta_s_threshold = 0.0
+
+        if self.R_ema < R_threshold:
+            absorb_info["reason"] = "R_too_low"
+            return absorb_info
+
+        if abs(self.g_lens_ema - 1.0) < g_threshold:
+            absorb_info["reason"] = "g_near_1"
+            return absorb_info
+
+        if self.delta_s_ema <= delta_s_threshold:
+            absorb_info["reason"] = "delta_s_not_positive"
+            return absorb_info
+
+        # All conditions met - absorb!
+        absorb_info["absorbed"] = True
+        absorb_info["reason"] = "success"
+
+        # Success weight: how much we're improving
+        success_weight = max(0, self.delta_s_ema)
+
+        # θ_home absorption: drift becomes identity
+        drift = self.theta - self.theta_home
+        delta_home = (
+            self.eta_theta_home
+            * drift
+            * (self.g_lens_ema - 1.0)
+            * self.R_ema
+            * success_weight
+        )
+        # Rate limit
+        delta_home = max(-0.5, min(0.5, delta_home))
+        self.theta_home += delta_home
+        absorb_info["delta_theta_home"] = delta_home
+
+        # k_home adaptation: success while far → more adventurous
+        drift_dist = abs(drift)
+        delta_k = (
+            -self.eta_k_home
+            * drift_dist
+            * (self.g_lens_ema - 1.0)
+            * self.R_ema
+            * success_weight
+        )
+        # Bound k_home
+        new_k = self.k_home + delta_k
+        new_k = max(0.001, min(0.1, new_k))
+        absorb_info["delta_k_home"] = new_k - self.k_home
+        self.k_home = new_k
+
+        return absorb_info
+
+    def compute_diversity_bonus(self) -> float:
+        """
+        Reward experts who were damped but turned out correct.
+
+        This is the "feet someday" mechanism:
+        - If lens damped you (g < 1), you're an outlier
+        - If you're still improving (Δs > 0), you're a CORRECT outlier
+        - You get a diversity bonus that feeds into effective_reliability
+        """
+        # Was I damped? (lens didn't like my direction)
+        damping_threshold = 0.95
+        was_damped = self.g_lens_ema < damping_threshold
+
+        # Was I right anyway?
+        success_threshold = 0.02
+        was_correct = self.delta_s_ema > success_threshold
+
+        if was_damped and was_correct:
+            # I resisted consensus and was vindicated
+            outlier_strength = 1.0 - self.g_lens_ema  # How much I was damped
+            success_strength = self.delta_s_ema       # How right I was
+            self.diversity_bonus = self.diversity_bonus_rate * outlier_strength * success_strength
+        else:
+            # Decay diversity bonus when not actively being a correct outlier
+            self.diversity_bonus *= 0.9
+
+        return self.diversity_bonus
 
     def tick_fast(
         self,
@@ -1063,6 +1200,10 @@ class CulturalEvolutionaryController:
         drifts = [sig["raw_drift"] for sig in expert_signals]
         self.lens.update(drifts)
 
+        # V6.1: Update absorption statistics for each expert
+        for e, sig in zip(self.experts, expert_signals):
+            e.update_absorption_stats(sig["g_lens"], R, sig["alpha_lens"])
+
         micro_event = False
         macro_event = False
         cultural_event = False
@@ -1087,6 +1228,12 @@ class CulturalEvolutionaryController:
                 # Update reliability
                 for e in self.experts:
                     e.do_macro_update(self.eta_s, self.beta_s)
+
+                # V6.1: Prediction success axis
+                for e in self.experts:
+                    e.update_delta_s()           # Track Δs
+                    e.maybe_absorb()             # Absorb if conditions met
+                    e.compute_diversity_bonus()  # Reward correct outliers
 
                 # Update Governor
                 s_values = [e.s for e in self.experts]
@@ -1122,6 +1269,10 @@ class CulturalEvolutionaryController:
         # Compute lens diagnostics
         avg_g_lens = sum(sig["g_lens"] for sig in expert_signals) / len(expert_signals) if expert_signals else 1.0
 
+        # V6.1: Compute prediction success diagnostics
+        avg_delta_s = sum(e.delta_s_ema for e in self.experts) / len(self.experts) if self.experts else 0.0
+        avg_diversity_bonus = sum(e.diversity_bonus for e in self.experts) / len(self.experts) if self.experts else 0.0
+
         return {
             "fast_clock": self.fast_clock,
             "micro_clock": self.micro_clock,
@@ -1144,6 +1295,9 @@ class CulturalEvolutionaryController:
             # Lens diagnostics
             "lens_L": self.lens.L,
             "avg_g_lens": avg_g_lens,
+            # V6.1: Prediction success diagnostics
+            "avg_delta_s": avg_delta_s,
+            "avg_diversity_bonus": avg_diversity_bonus,
         }
 
     def _check_bifurcation(
