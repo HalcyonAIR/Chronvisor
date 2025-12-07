@@ -8,6 +8,7 @@ from chronovisor.simulation_v6 import (
     CulturalController,
     CulturalEvolutionaryController,
     Governor,
+    Lens,
     compute_kuramoto_R_and_psi,
     reset_id_counters,
     _next_expert_id,
@@ -573,3 +574,225 @@ class TestPressureFramework:
 
         assert 1 in expert.motif_affinity
         assert expert.motif_affinity[1] > 0
+
+
+class TestLens:
+    """Tests for the lens gain mechanism."""
+
+    def setup_method(self):
+        reset_id_counters()
+        random.seed(42)
+
+    def test_lens_default_values(self):
+        """Lens initializes with sensible defaults."""
+        lens = Lens()
+
+        assert lens.L == 0.0
+        assert lens.eta_L == 0.1
+        assert lens.gamma_lens == 0.3
+        assert lens.g_min == 0.5
+        assert lens.g_max == 1.5
+
+    def test_lens_update_from_drifts(self):
+        """update() updates L as EMA of mean drift."""
+        lens = Lens(L=0.0, eta_L=0.5)
+
+        lens.update([1.0, 1.0, 1.0])  # Mean drift = 1.0
+
+        assert lens.L == 0.5  # (1-0.5)*0 + 0.5*1.0 = 0.5
+
+    def test_lens_update_empty_drifts(self):
+        """update() with empty list leaves L unchanged."""
+        lens = Lens(L=0.5)
+
+        lens.update([])
+
+        assert lens.L == 0.5
+
+    def test_lens_compute_gain_aligned(self):
+        """compute_gain amplifies drift aligned with L."""
+        lens = Lens(L=1.0, gamma_lens=0.3)
+
+        # Positive drift aligned with positive L
+        g, alpha = lens.compute_gain(raw_drift=0.5, R=1.0)
+
+        assert alpha == 1.0  # Full agreement
+        assert g == 1.3  # 1 + 0.3 * 1.0 * 1.0
+
+    def test_lens_compute_gain_opposed(self):
+        """compute_gain dampens drift opposed to L."""
+        lens = Lens(L=1.0, gamma_lens=0.3)
+
+        # Negative drift opposed to positive L
+        g, alpha = lens.compute_gain(raw_drift=-0.5, R=1.0)
+
+        assert alpha == -1.0  # Full opposition
+        assert g == 0.7  # 1 + 0.3 * 1.0 * (-1.0)
+
+    def test_lens_compute_gain_gated_by_R(self):
+        """Gain effect is gated by coherence R."""
+        lens = Lens(L=1.0, gamma_lens=0.3)
+
+        # Low R reduces gain effect
+        g, alpha = lens.compute_gain(raw_drift=0.5, R=0.0)
+
+        assert alpha == 1.0  # Still aligned
+        assert g == 1.0  # No effect because R=0
+
+    def test_lens_compute_gain_bounded(self):
+        """Gain is clamped to [g_min, g_max]."""
+        lens = Lens(L=1.0, gamma_lens=1.0, g_min=0.5, g_max=1.5)
+
+        # Would be g=2.0, but clamped to 1.5
+        g, _ = lens.compute_gain(raw_drift=1.0, R=1.0)
+        assert g == 1.5
+
+        # Would be g=0.0, but clamped to 0.5
+        g, _ = lens.compute_gain(raw_drift=-1.0, R=1.0)
+        assert g == 0.5
+
+    def test_lens_compute_gain_zero_L(self):
+        """alpha=0 when L is zero."""
+        lens = Lens(L=0.0, gamma_lens=0.3)
+
+        g, alpha = lens.compute_gain(raw_drift=0.5, R=1.0)
+
+        assert alpha == 0.0
+        assert g == 1.0
+
+    def test_lens_compute_gain_zero_drift(self):
+        """alpha=0 when raw_drift is zero."""
+        lens = Lens(L=1.0, gamma_lens=0.3)
+
+        g, alpha = lens.compute_gain(raw_drift=0.0, R=1.0)
+
+        assert alpha == 0.0
+        assert g == 1.0
+
+    def test_lens_get_params(self):
+        """get_params returns (L, gamma_lens, g_min, g_max)."""
+        lens = Lens(L=0.5, gamma_lens=0.4, g_min=0.6, g_max=1.4)
+
+        L, gamma, gmin, gmax = lens.get_params()
+
+        assert L == 0.5
+        assert gamma == 0.4
+        assert gmin == 0.6
+        assert gmax == 1.4
+
+
+class TestLensIntegration:
+    """Integration tests for lens in controller."""
+
+    def setup_method(self):
+        reset_id_counters()
+        random.seed(42)
+
+    def test_expert_tick_fast_returns_lens_diagnostics(self):
+        """tick_fast returns raw_drift, g_lens, alpha_lens."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+        )
+
+        info = expert.tick_fast(psi=0.0)
+
+        assert "raw_drift" in info
+        assert "g_lens" in info
+        assert "alpha_lens" in info
+
+    def test_expert_tick_fast_applies_lens_gain(self):
+        """F_drift = g_lens * raw_drift."""
+        expert = CulturalExpert(
+            name="Test", expert_id=_next_expert_id(),
+            phi=0.0, omega=0.1,
+            lambd=0.1,
+        )
+
+        # With L aligned with expected positive drift
+        info = expert.tick_fast(
+            psi=0.0,  # alignment=cos(0-0)=1, raw_drift=0.1*1=0.1
+            L=1.0,
+            R=1.0,
+            gamma_lens=0.3,
+            g_min=0.5,
+            g_max=1.5,
+        )
+
+        # raw_drift and F_drift should differ by g_lens
+        assert abs(info["F_drift"] - info["g_lens"] * info["raw_drift"]) < 1e-10
+
+    def test_controller_has_lens(self):
+        """CulturalEvolutionaryController has lens field."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+            ),
+        ]
+        controller = CulturalEvolutionaryController(experts=experts)
+
+        assert hasattr(controller, "lens")
+        assert isinstance(controller.lens, Lens)
+
+    def test_controller_tick_updates_lens_L(self):
+        """Controller updates lens.L after each tick."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+                lambd=0.1,
+            ),
+        ]
+        controller = CulturalEvolutionaryController(experts=experts)
+
+        assert controller.lens.L == 0.0
+
+        # Run some ticks to generate drifts
+        for _ in range(10):
+            controller.tick()
+
+        # L should have been updated
+        assert controller.lens.L != 0.0
+
+    def test_controller_tick_returns_lens_diagnostics(self):
+        """Controller tick returns lens_L and avg_g_lens."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+            ),
+        ]
+        controller = CulturalEvolutionaryController(experts=experts)
+
+        info = controller.tick()
+
+        assert "lens_L" in info
+        assert "avg_g_lens" in info
+
+    def test_lens_effect_increases_with_R(self):
+        """Higher R means stronger lens effect."""
+        experts = [
+            CulturalExpert(
+                name="A", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,
+            ),
+            CulturalExpert(
+                name="B", expert_id=_next_expert_id(),
+                phi=0.0, omega=0.1,  # Same phase = high R
+            ),
+        ]
+        controller = CulturalEvolutionaryController(
+            experts=experts,
+            noise_phi_std=0.0,  # No noise for reproducibility
+        )
+
+        # Prime the lens with some positive drift
+        controller.lens.L = 0.1
+
+        info = controller.tick()
+
+        # With R≈1 and aligned drifts, avg_g_lens should be > 1
+        # (experts are aligned, so their drifts agree with L)
+        assert info["R"] > 0.9
+        assert info["avg_g_lens"] >= 1.0

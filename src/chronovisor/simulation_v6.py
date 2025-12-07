@@ -75,6 +75,78 @@ def reset_id_counters():
 
 
 @dataclass
+class Lens:
+    """
+    Global lens that modulates expert drift based on agreement with flow.
+
+    The lens tracks a smoothed orientation L representing "where the global
+    flow is going" in theta-space. Experts whose drift agrees with L get
+    amplified; those opposing get damped. The effect is gated by coherence R.
+
+    Key principle: the lens does NOT choose outcomes—it rescales F_drift
+    per expert based on agreement with global flow. Soft, bounded, reversible.
+    """
+
+    # Lens orientation (EMA of mean expert drift)
+    L: float = 0.0
+
+    # Smoothing factor for L updates
+    eta_L: float = 0.1
+
+    # Lens strength (how much gain can deviate from 1.0)
+    gamma_lens: float = 0.3
+
+    # Gain bounds (keeps system stable)
+    g_min: float = 0.5
+    g_max: float = 1.5
+
+    def update(self, drifts: List[float]) -> None:
+        """
+        Update lens orientation from expert drift signals.
+
+        L_t = (1 - eta_L) * L_{t-1} + eta_L * mean(drifts)
+        """
+        if not drifts:
+            return
+        mean_drift = sum(drifts) / len(drifts)
+        self.L = (1.0 - self.eta_L) * self.L + self.eta_L * mean_drift
+
+    def compute_gain(self, raw_drift: float, R: float) -> Tuple[float, float]:
+        """
+        Compute lens gain for an expert given its raw drift and global coherence.
+
+        Returns (gain, alpha) where:
+        - gain: multiplicative factor for F_drift
+        - alpha: agreement score in [-1, 1]
+
+        Formula:
+        - alpha = sign agreement between raw_drift and L (normalized)
+        - g = 1 + gamma_lens * R * alpha
+        - g clamped to [g_min, g_max]
+        """
+        epsilon = 1e-8
+
+        # Compute agreement with lens orientation
+        if abs(self.L) < epsilon or abs(raw_drift) < epsilon:
+            alpha = 0.0
+        else:
+            # Normalized product gives sign agreement in [-1, 1]
+            alpha = (raw_drift * self.L) / (abs(raw_drift) * abs(self.L))
+
+        # Compute gain, gated by coherence R
+        g = 1.0 + self.gamma_lens * R * alpha
+
+        # Clamp to bounds
+        g = max(self.g_min, min(self.g_max, g))
+
+        return g, alpha
+
+    def get_params(self) -> Tuple[float, float, float, float]:
+        """Return parameters needed by experts: (L, gamma_lens, g_min, g_max)."""
+        return self.L, self.gamma_lens, self.g_min, self.g_max
+
+
+@dataclass
 class CulturalExpert:
     """
     Expert with cultural capabilities and pressure-based dynamics.
@@ -145,15 +217,27 @@ class CulturalExpert:
         noise_phi_std: float = 0.01,
         noise_v_std: float = 0.01,
         motifs: Optional[Dict[int, "Motif"]] = None,
+        # Lens parameters
+        L: float = 0.0,
+        R: float = 0.0,
+        gamma_lens: float = 0.3,
+        g_min: float = 0.5,
+        g_max: float = 1.5,
     ) -> Dict[str, float]:
         """
-        Fast clock update using pressure-field dynamics.
+        Fast clock update using pressure-field dynamics with lens modulation.
 
         Pressures:
-        - F_drift: expert's own intent (lambda * alignment)
+        - F_drift: expert's own intent (lambda * alignment), modulated by lens
         - F_home: rubber band to birth position
         - F_culture: pull toward affiliated motifs
         - F_safety: avoidance of unsafe regions (stub)
+
+        Lens:
+        - Computes raw_drift = lambda * alignment
+        - Computes agreement alpha with lens orientation L
+        - Applies gain g = 1 + gamma_lens * R * alpha (clamped)
+        - F_drift = g * raw_drift
         """
         # Phase update
         self.phi = (
@@ -168,15 +252,30 @@ class CulturalExpert:
         self.macro_align_sum += a_k
         self.macro_align_count += 1
 
-        # === PRESSURE FRAMEWORK ===
+        # === PRESSURE FRAMEWORK WITH LENS ===
 
-        # 1. Drift pressure (expert's own belief/intent)
-        F_drift = self.lambd * a_k
+        # 1. Raw drift (expert's proposal before lens)
+        raw_drift = self.lambd * a_k
 
-        # 2. Home pressure (rubber band to theta_home)
+        # 2. Lens gain calculation
+        epsilon = 1e-8
+        if abs(L) < epsilon or abs(raw_drift) < epsilon:
+            alpha_lens = 0.0
+        else:
+            # Normalized product gives sign agreement in [-1, 1]
+            alpha_lens = (raw_drift * L) / (abs(raw_drift) * abs(L))
+
+        # Gain is gated by coherence R
+        g_lens = 1.0 + gamma_lens * R * alpha_lens
+        g_lens = max(g_min, min(g_max, g_lens))
+
+        # 3. Lensed drift pressure
+        F_drift = g_lens * raw_drift
+
+        # 4. Home pressure (rubber band to theta_home)
         F_home = -self.k_home * (self.theta - self.theta_home)
 
-        # 3. Cultural pressure (pull toward affiliated motifs)
+        # 5. Cultural pressure (pull toward affiliated motifs)
         F_culture = 0.0
         if motifs and self.motif_ids:
             for motif_id in self.motif_ids:
@@ -186,7 +285,7 @@ class CulturalExpert:
                     # Pull toward motif center, weighted by affinity and motif's alpha
                     F_culture += -w * m.alpha_theta * (self.theta - m.theta_center)
 
-        # 4. Safety pressure (stub - can be expanded later)
+        # 6. Safety pressure (stub - can be expanded later)
         F_safety = 0.0
 
         # Total pressure
@@ -215,10 +314,14 @@ class CulturalExpert:
             "cultural_capital": self.cultural_capital,
             "num_motifs": len(self.motif_ids),
             # Pressure diagnostics
+            "raw_drift": raw_drift,
             "F_drift": F_drift,
             "F_home": F_home,
             "F_culture": F_culture,
             "F_total": F_total,
+            # Lens diagnostics
+            "g_lens": g_lens,
+            "alpha_lens": alpha_lens,
         }
 
     def do_micro_update(
@@ -867,6 +970,9 @@ class CulturalEvolutionaryController:
     # Cultural controller
     cultural: CulturalController = field(default_factory=CulturalController)
 
+    # Global lens for drift modulation
+    lens: Lens = field(default_factory=Lens)
+
     # Clocks
     fast_clock: int = 0
     micro_clock: int = 0
@@ -932,7 +1038,10 @@ class CulturalEvolutionaryController:
         # Build motifs dict for pressure-based dynamics
         motifs_dict = {m.motif_id: m for m in self.cultural.motifs}
 
-        # Fast update for each expert (with pressure-based dynamics)
+        # Get lens parameters for this tick
+        L, gamma_lens, g_min, g_max = self.lens.get_params()
+
+        # Fast update for each expert (with pressure-based dynamics and lens)
         expert_signals = [
             e.tick_fast(
                 psi=psi,
@@ -940,9 +1049,19 @@ class CulturalEvolutionaryController:
                 noise_phi_std=effective["noise_phi_std"],
                 noise_v_std=effective["noise_v_std"],
                 motifs=motifs_dict,
+                # Lens parameters
+                L=L,
+                R=R,
+                gamma_lens=gamma_lens,
+                g_min=g_min,
+                g_max=g_max,
             )
             for e in self.experts
         ]
+
+        # Update lens with raw drifts from this tick
+        drifts = [sig["raw_drift"] for sig in expert_signals]
+        self.lens.update(drifts)
 
         micro_event = False
         macro_event = False
@@ -1000,6 +1119,9 @@ class CulturalEvolutionaryController:
                         mode=self.current_mode,
                     )
 
+        # Compute lens diagnostics
+        avg_g_lens = sum(sig["g_lens"] for sig in expert_signals) / len(expert_signals) if expert_signals else 1.0
+
         return {
             "fast_clock": self.fast_clock,
             "micro_clock": self.micro_clock,
@@ -1019,6 +1141,9 @@ class CulturalEvolutionaryController:
             "mode": self.current_mode,
             "num_motifs": len(self.cultural.motifs),
             "cultural_info": cultural_info,
+            # Lens diagnostics
+            "lens_L": self.lens.L,
+            "avg_g_lens": avg_g_lens,
         }
 
     def _check_bifurcation(
