@@ -1246,6 +1246,11 @@ def run_simulation_v6(
     macro_period: int = 4,
     cultural_period: int = 3,
     D_max: float = 50.0,
+    # Lens parameters
+    eta_L: float = 0.1,
+    gamma_lens: float = 0.3,
+    g_min: float = 0.5,
+    g_max: float = 1.5,
 ) -> None:
     """
     Run the V6 simulation with cultural transmission.
@@ -1275,11 +1280,13 @@ def run_simulation_v6(
 
     governor = Governor(max_population=20, min_population=3)
     cultural = CulturalController()
+    lens = Lens(eta_L=eta_L, gamma_lens=gamma_lens, g_min=g_min, g_max=g_max)
 
     controller = CulturalEvolutionaryController(
         experts=experts,
         governor=governor,
         cultural=cultural,
+        lens=lens,
         micro_period=micro_period,
         macro_period=macro_period,
         cultural_period=cultural_period,
@@ -1292,6 +1299,7 @@ def run_simulation_v6(
     print("=" * 100)
     print(f"Initial experts: {names}")
     print(f"D_max (drift threshold): {D_max}")
+    print(f"Lens: gamma={gamma_lens}, eta_L={eta_L}, bounds=[{g_min}, {g_max}]")
     print(f"Periods: micro={micro_period}, macro={macro_period * micro_period}, "
           f"cultural={cultural_period * macro_period * micro_period}")
     print("Four clocks: fast (token) < micro (lambda) < macro (s, bifurcate) < cultural (motifs)")
@@ -1329,6 +1337,8 @@ def run_simulation_v6(
         if info["macro_event"]:
             pop = info["population"]
             R = info["R"]
+            lens_L = info.get("lens_L", 0.0)
+            avg_g = info.get("avg_g_lens", 1.0)
 
             avg_drift = sum(e.drift_distance() for e in controller.experts) / pop
             avg_s = sum(e.s for e in controller.experts) / pop
@@ -1351,7 +1361,7 @@ def run_simulation_v6(
 
             print(
                 f"t={t:3d} | R={R:.3f} | N={pop:2d} | "
-                f"drift={avg_drift:6.1f} | s={avg_s:+.3f} | CC={avg_cc:.3f} | "
+                f"drift={avg_drift:6.1f} | s={avg_s:+.3f} | L={lens_L:+.4f} | g={avg_g:.3f} | "
                 f"gen={max_gen} | {gate_spawn}/{gate_cull} {mode_display} {cultural_tag}"
             )
 
