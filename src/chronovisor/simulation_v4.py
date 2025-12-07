@@ -236,17 +236,196 @@ class BifurcatingExpert:
 
 
 @dataclass
+class Governor:
+    """
+    Meta-controller that gates bifurcation and culling.
+
+    The Governor observes ecosystem-level signals and decides:
+    - gate_spawn: whether bifurcation is allowed
+    - gate_cull: whether culling is allowed
+    - mode: "normal" or "outside_box"
+
+    Outside-box mode triggers when the system is stagnant:
+    near capacity but no progress. It relaxes thresholds to
+    encourage exploration.
+    """
+
+    # Population bounds
+    max_population: int = 20
+    min_population: int = 3
+
+    # Coherence thresholds
+    R_high: float = 0.8  # Above this, population is "in agreement"
+    R_low: float = 0.3   # Below this, population is "chaotic"
+
+    # Reliability thresholds
+    s_spawn_threshold: float = 0.1  # Must be this reliable to spawn
+    s_cull_threshold: float = -0.3  # Below this for too long → cull
+
+    # Stagnation detection
+    stagnation_window: int = 5  # Macro ticks to look back
+    progress_threshold: float = 0.02  # R must improve by this much
+
+    # History buffers
+    R_history: List[float] = field(default_factory=list)
+    s_avg_history: List[float] = field(default_factory=list)
+
+    # Current state
+    mode: str = "normal"
+    mode_ticks_remaining: int = 0  # How long to stay in current mode
+
+    # Outside-box parameters
+    outside_box_duration: int = 10  # Macro ticks in outside_box mode
+    relaxed_D_max_factor: float = 0.7  # Multiply D_max by this in outside_box
+    relaxed_s_spawn_factor: float = 0.5  # Multiply s_spawn threshold
+    noise_boost_factor: float = 2.0  # Multiply noise in outside_box
+
+    def update(
+        self,
+        R: float,
+        N: int,
+        s_values: List[float],
+        d_values: List[float],
+    ) -> Tuple[bool, bool, str]:
+        """
+        Update governor state and return gates.
+
+        Args:
+            R: Current Kuramoto coherence
+            N: Current population size
+            s_values: List of expert reliability scores
+            d_values: List of expert drift distances
+
+        Returns:
+            (gate_spawn, gate_cull, mode)
+        """
+        # Update history
+        self.R_history.append(R)
+        if len(self.R_history) > self.stagnation_window:
+            self.R_history.pop(0)
+
+        s_avg = sum(s_values) / len(s_values) if s_values else 0.0
+        self.s_avg_history.append(s_avg)
+        if len(self.s_avg_history) > self.stagnation_window:
+            self.s_avg_history.pop(0)
+
+        # Check for mode transition
+        if self.mode == "outside_box":
+            self.mode_ticks_remaining -= 1
+            if self.mode_ticks_remaining <= 0:
+                self.mode = "normal"
+        else:
+            # Check for stagnation
+            if self._is_stagnant(N):
+                self.mode = "outside_box"
+                self.mode_ticks_remaining = self.outside_box_duration
+
+        # Compute gates
+        gate_spawn = self._compute_gate_spawn(R, N, s_avg)
+        gate_cull = self._compute_gate_cull(R, N)
+
+        return gate_spawn, gate_cull, self.mode
+
+    def _is_stagnant(self, N: int) -> bool:
+        """
+        Detect stagnation: near capacity but no coherence progress.
+        """
+        # Need enough history
+        if len(self.R_history) < self.stagnation_window:
+            return False
+
+        # Must be near capacity
+        capacity_ratio = N / self.max_population
+        if capacity_ratio < 0.8:
+            return False
+
+        # Check for progress in R
+        R_start = self.R_history[0]
+        R_end = self.R_history[-1]
+        progress = R_end - R_start
+
+        # Stagnant if no improvement (or decline) in coherence
+        return progress < self.progress_threshold
+
+    def _compute_gate_spawn(self, R: float, N: int, s_avg: float) -> bool:
+        """
+        Should bifurcation be allowed?
+
+        Open when:
+        - Below capacity
+        - Either: R is low (need diversity) OR s_avg is positive (healthy)
+        - In outside_box mode: always open if below capacity
+        """
+        if N >= self.max_population:
+            return False
+
+        if self.mode == "outside_box":
+            return True  # Encourage exploration
+
+        # Normal mode: spawn when R is low (need diversity) or when healthy
+        return R < self.R_high or s_avg > 0.0
+
+    def _compute_gate_cull(self, R: float, N: int) -> bool:
+        """
+        Should culling be allowed?
+
+        Open when:
+        - Above minimum population
+        - R is reasonable (not in chaos)
+        - In outside_box mode: more conservative about culling
+        """
+        if N <= self.min_population:
+            return False
+
+        if self.mode == "outside_box":
+            # More conservative: only cull if well above minimum
+            return N > self.min_population + 2
+
+        # Normal mode: cull when not in chaos
+        return R > self.R_low
+
+    def get_effective_params(
+        self,
+        base_D_max: float,
+        base_s_bifurcate: float,
+        base_noise_phi_std: float,
+        base_noise_v_std: float,
+    ) -> Dict[str, float]:
+        """
+        Get effective parameters, potentially relaxed in outside_box mode.
+        """
+        if self.mode == "outside_box":
+            return {
+                "D_max": base_D_max * self.relaxed_D_max_factor,
+                "s_bifurcate": base_s_bifurcate * self.relaxed_s_spawn_factor,
+                "noise_phi_std": base_noise_phi_std * self.noise_boost_factor,
+                "noise_v_std": base_noise_v_std * self.noise_boost_factor,
+            }
+        else:
+            return {
+                "D_max": base_D_max,
+                "s_bifurcate": base_s_bifurcate,
+                "noise_phi_std": base_noise_phi_std,
+                "noise_v_std": base_noise_v_std,
+            }
+
+
+@dataclass
 class EvolutionaryController:
     """
-    Controller with bifurcation and culling.
+    Controller with bifurcation and culling, gated by a Governor.
 
     At macro clock:
-    - Check each expert's drift from home
+    - Governor decides gate_spawn, gate_cull, and mode
+    - If gate_spawn: check each expert's drift from home
     - If drift > D_max and expert is coherent: BIFURCATE
-    - If reliability < s_cull for too long: CULL (if population allows)
+    - If gate_cull and reliability < s_cull for too long: CULL
     """
 
     experts: List[BifurcatingExpert]
+
+    # Governor (meta-controller)
+    governor: Governor = field(default_factory=Governor)
 
     # Clocks
     fast_clock: int = 0
@@ -267,7 +446,7 @@ class EvolutionaryController:
     eta_s: float = 0.05
     beta_s: float = 3.0
 
-    # Bifurcation parameters
+    # Bifurcation parameters (base values, may be modified by Governor)
     D_max: float = 50.0  # Drift threshold for bifurcation
     s_bifurcate: float = 0.1  # Must be this reliable to bifurcate
     max_population: int = 20  # Cap on total experts
@@ -280,6 +459,11 @@ class EvolutionaryController:
     # Global stats
     micro_R_sum: float = 0.0
     micro_R_count: int = 0
+
+    # Current governor state (for external access)
+    current_gate_spawn: bool = True
+    current_gate_cull: bool = True
+    current_mode: str = "normal"
 
     # Event log
     events: List[Dict] = field(default_factory=list)
@@ -295,13 +479,21 @@ class EvolutionaryController:
         self.micro_R_sum += R
         self.micro_R_count += 1
 
+        # Get effective parameters from Governor (may be modified in outside_box mode)
+        effective = self.governor.get_effective_params(
+            self.D_max,
+            self.s_bifurcate,
+            self.noise_phi_std,
+            self.noise_v_std,
+        )
+
         # Fast update for each expert
         expert_signals = [
             e.tick_fast(
                 psi=psi,
                 dv=self.dv,
-                noise_phi_std=self.noise_phi_std,
-                noise_v_std=self.noise_v_std,
+                noise_phi_std=effective["noise_phi_std"],
+                noise_v_std=effective["noise_v_std"],
             )
             for e in self.experts
         ]
@@ -331,11 +523,28 @@ class EvolutionaryController:
                     w = e.do_macro_update(self.eta_s, self.beta_s)
                     weights[e.name] = w
 
-                # Check for bifurcation
-                bifurcations = self._check_bifurcation()
+                # Update Governor and get gates
+                s_values = [e.s for e in self.experts]
+                d_values = [e.drift_distance() for e in self.experts]
+                gate_spawn, gate_cull, mode = self.governor.update(
+                    R=R,
+                    N=len(self.experts),
+                    s_values=s_values,
+                    d_values=d_values,
+                )
 
-                # Check for culling
-                culled = self._check_culling()
+                # Store current state
+                self.current_gate_spawn = gate_spawn
+                self.current_gate_cull = gate_cull
+                self.current_mode = mode
+
+                # Check for bifurcation (if gate is open)
+                bifurcations = self._check_bifurcation(
+                    gate_spawn, effective["D_max"], effective["s_bifurcate"]
+                )
+
+                # Check for culling (if gate is open)
+                culled = self._check_culling(gate_cull)
 
         return {
             "fast_clock": self.fast_clock,
@@ -349,11 +558,23 @@ class EvolutionaryController:
             "macro_event": macro_event,
             "bifurcations": bifurcations,
             "culled": culled,
+            "gate_spawn": self.current_gate_spawn,
+            "gate_cull": self.current_gate_cull,
+            "mode": self.current_mode,
         }
 
-    def _check_bifurcation(self) -> List[Dict]:
+    def _check_bifurcation(
+        self,
+        gate_spawn: bool,
+        effective_D_max: float,
+        effective_s_bifurcate: float,
+    ) -> List[Dict]:
         """Check each expert for bifurcation eligibility."""
         bifurcations = []
+
+        # Gate must be open
+        if not gate_spawn:
+            return bifurcations
 
         if len(self.experts) >= self.max_population:
             return bifurcations  # At capacity
@@ -364,8 +585,8 @@ class EvolutionaryController:
 
             # Eligible: drifted far AND is reliable AND not already at capacity
             if (
-                drift > self.D_max
-                and expert.s > self.s_bifurcate
+                drift > effective_D_max
+                and expert.s > effective_s_bifurcate
                 and len(self.experts) < self.max_population
             ):
                 # Spawn offspring at old home
@@ -386,15 +607,20 @@ class EvolutionaryController:
                     "old_home": old_home,
                     "new_home": expert.theta_home,
                     "drift": drift,
+                    "mode": self.current_mode,
                 }
                 bifurcations.append(event)
                 self.events.append(event)
 
         return bifurcations
 
-    def _check_culling(self) -> List[Dict]:
+    def _check_culling(self, gate_cull: bool) -> List[Dict]:
         """Cull experts with consistently low reliability."""
         culled = []
+
+        # Gate must be open
+        if not gate_cull:
+            return culled
 
         if len(self.experts) <= self.min_population:
             return culled  # Can't cull below minimum
@@ -416,6 +642,7 @@ class EvolutionaryController:
                     "id": expert.expert_id,
                     "reliability": expert.s,
                     "generation": expert.generation,
+                    "mode": self.current_mode,
                 }
                 culled.append(event)
                 self.events.append(event)
@@ -435,7 +662,7 @@ def run_simulation_v4(
     D_max: float = 50.0,
 ) -> None:
     """
-    Run the V4 simulation with bifurcation and culling.
+    Run the V4 simulation with bifurcation, culling, and Governor.
     """
     random.seed(seed)
     reset_expert_id_counter()
@@ -460,22 +687,32 @@ def run_simulation_v4(
         for n, w in zip(names, omegas)
     ]
 
+    # Create Governor with matching parameters
+    governor = Governor(
+        max_population=20,
+        min_population=3,
+    )
+
     controller = EvolutionaryController(
         experts=experts,
+        governor=governor,
         micro_period=micro_period,
         macro_period=macro_period,
         D_max=D_max,
     )
 
     # Header
-    print("=" * 85)
-    print("CHRONOVISOR V4: EXPERT BIFURCATION & POPULATION DYNAMICS")
-    print("=" * 85)
+    print("=" * 90)
+    print("CHRONOVISOR V4: EXPERT BIFURCATION & POPULATION DYNAMICS (with Governor)")
+    print("=" * 90)
     print(f"Initial experts: {names}")
     print(f"D_max (drift threshold): {D_max}")
     print(f"Periods: micro={micro_period}, macro={macro_period * micro_period}")
-    print("=" * 85)
+    print("Governor: gates spawn/cull, detects stagnation, triggers outside_box mode")
+    print("=" * 90)
     print()
+
+    outside_box_events = 0
 
     # Run simulation
     for t in range(1, num_ticks + 1):
@@ -483,12 +720,14 @@ def run_simulation_v4(
 
         # Log bifurcation events immediately
         for bif in info["bifurcations"]:
-            print(f"  🌱 BIFURCATION: {bif['parent']} → spawned {bif['offspring']} "
+            mode_tag = " [OOB]" if bif.get("mode") == "outside_box" else ""
+            print(f"  🌱 BIFURCATION{mode_tag}: {bif['parent']} → spawned {bif['offspring']} "
                   f"(drift={bif['drift']:.1f})")
 
         # Log culling events
         for cull in info["culled"]:
-            print(f"  💀 CULLED: {cull['name']} (s={cull['reliability']:.3f})")
+            mode_tag = " [OOB]" if cull.get("mode") == "outside_box" else ""
+            print(f"  💀 CULLED{mode_tag}: {cull['name']} (s={cull['reliability']:.3f})")
 
         # Regular logging at macro events
         if info["macro_event"]:
@@ -501,19 +740,36 @@ def run_simulation_v4(
             generations = [e.generation for e in controller.experts]
             max_gen = max(generations) if generations else 0
 
+            # Governor state
+            mode = info.get("mode", "normal")
+            gate_spawn = "✓" if info.get("gate_spawn", True) else "✗"
+            gate_cull = "✓" if info.get("gate_cull", True) else "✗"
+
+            if mode == "outside_box":
+                outside_box_events += 1
+                mode_display = "OUTSIDE_BOX"
+            else:
+                mode_display = "normal"
+
             print(
                 f"t={t:3d} [MACRO] | R={R:.3f} | pop={pop:2d} | "
-                f"avg_drift={avg_drift:6.1f} | avg_s={avg_s:+.3f} | max_gen={max_gen}"
+                f"avg_drift={avg_drift:6.1f} | avg_s={avg_s:+.3f} | max_gen={max_gen} | "
+                f"spawn={gate_spawn} cull={gate_cull} mode={mode_display}"
             )
 
     # Final summary
     print()
-    print("=" * 85)
+    print("=" * 90)
     print("SIMULATION COMPLETE")
-    print("=" * 85)
+    print("=" * 90)
     print(f"Final population: {len(controller.experts)}")
-    print(f"Total bifurcations: {sum(1 for e in controller.events if e['type'] == 'bifurcation')}")
-    print(f"Total cullings: {sum(1 for e in controller.events if e['type'] == 'culling')}")
+    total_bifs = sum(1 for e in controller.events if e['type'] == 'bifurcation')
+    oob_bifs = sum(1 for e in controller.events if e['type'] == 'bifurcation' and e.get('mode') == 'outside_box')
+    total_culls = sum(1 for e in controller.events if e['type'] == 'culling')
+    oob_culls = sum(1 for e in controller.events if e['type'] == 'culling' and e.get('mode') == 'outside_box')
+    print(f"Total bifurcations: {total_bifs} ({oob_bifs} in outside_box mode)")
+    print(f"Total cullings: {total_culls} ({oob_culls} in outside_box mode)")
+    print(f"Outside-box macro events: {outside_box_events}")
     print()
 
     # Expert census
