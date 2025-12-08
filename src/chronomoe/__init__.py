@@ -21,6 +21,7 @@ from chronomoe.moe import Expert, MoE
 from chronomoe.router import Router, RoutingLog
 from chronomoe.bridge import ChronoMoEBridge
 from chronomoe.alignment import AlignmentMatrix, StructuralAligner, AlignmentEvent
+from chronomoe.knob import MetaKnob, KnobFactors, KnobState, KnobDecision, RuleBasedKnobController
 from chronomoe.experiment import SyntheticTask, Experiment, ExperimentMetrics
 from chronomoe.experiment_v7 import V7Experiment, V7Metrics, run_v7_experiment
 
@@ -41,4 +42,10 @@ __all__ = [
     "V7Experiment",
     "V7Metrics",
     "run_v7_experiment",
+    # Meta-Knob
+    "MetaKnob",
+    "KnobFactors",
+    "KnobState",
+    "KnobDecision",
+    "RuleBasedKnobController",
 ]
