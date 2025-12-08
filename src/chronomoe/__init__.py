@@ -12,15 +12,20 @@ Modules:
     moe: Simulated Mixture-of-Experts layer
     router: Router with pressure injection hook
     bridge: Translation layer between MoE stats and Chronovisor signals
-    experiment: Driver for baseline vs pressure experiments
+    alignment: V7 structural alignment between Chronovisor and MoE experts
+    experiment: V1 driver for baseline vs pressure experiments
+    experiment_v7: V7 driver with structural alignment tracking
 """
 
 from chronomoe.moe import Expert, MoE
 from chronomoe.router import Router, RoutingLog
 from chronomoe.bridge import ChronoMoEBridge
+from chronomoe.alignment import AlignmentMatrix, StructuralAligner, AlignmentEvent
 from chronomoe.experiment import SyntheticTask, Experiment, ExperimentMetrics
+from chronomoe.experiment_v7 import V7Experiment, V7Metrics, run_v7_experiment
 
 __all__ = [
+    # V1: Core MoE
     "Expert",
     "MoE",
     "Router",
@@ -29,4 +34,11 @@ __all__ = [
     "SyntheticTask",
     "Experiment",
     "ExperimentMetrics",
+    # V7: Structural Alignment
+    "AlignmentMatrix",
+    "StructuralAligner",
+    "AlignmentEvent",
+    "V7Experiment",
+    "V7Metrics",
+    "run_v7_experiment",
 ]
