@@ -609,7 +609,7 @@ class V7Experiment:
         # Check if alignment evolved
         A_identity = np.eye(self.task.n_experts)
         A_diff = np.linalg.norm(learned.final_alignment - A_identity)
-        alignment_evolved = A_diff > 0.5  # Significant change from identity
+        alignment_evolved = bool(A_diff > 0.5)  # Significant change from identity
 
         return V7ComparisonResult(
             identity=identity,
