@@ -302,3 +302,159 @@ class Router:
     def reset_log(self) -> None:
         """Clear the routing log."""
         self.log.clear()
+
+    def forward_with_knob(
+        self,
+        x: np.ndarray,
+        pressure_scale: float = 1.0,
+        explore_bias: float = 1.0,
+        token_indices: Optional[np.ndarray] = None,
+        top_k: int = 2,
+    ) -> np.ndarray:
+        """
+        Forward pass with meta-knob modulation.
+
+        This extends the basic forward() with knob factors:
+        - pressure_scale: Multiplies the pressure bias (κ > 0 → stronger pressure)
+        - explore_bias: Multiplies softmax temperature (κ > 0 → softer distribution)
+
+        Args:
+            x: Input hidden states of shape (batch, input_dim).
+            pressure_scale: Multiplier for pressure bias (from MetaKnob).
+            explore_bias: Multiplier for softmax temperature (from MetaKnob).
+            token_indices: Optional token indices for logging.
+            top_k: Number of experts to select.
+
+        Returns:
+            Gate weights of shape (batch, n_experts).
+        """
+        batch_size = x.shape[0]
+
+        # Compute raw logits
+        logits = self.compute_logits(x)
+
+        # Get pressure bias and apply scale
+        pressure = self.get_pressure()
+        scaled_pressure = pressure * pressure_scale
+
+        # Inject scaled pressure: logits' = logits + scale * b_k
+        adjusted_logits = logits + scaled_pressure[np.newaxis, :]
+
+        # Softmax with modulated temperature
+        # explore_bias > 1 → softer (more exploration)
+        # explore_bias < 1 → sharper (more exploitation)
+        effective_temperature = self.temperature * explore_bias
+        scaled_logits = adjusted_logits / effective_temperature
+        exp_logits = np.exp(scaled_logits - scaled_logits.max(axis=1, keepdims=True))
+        gate_weights = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+
+        # Get top-k experts
+        top_k_experts = np.argsort(gate_weights, axis=1)[:, -top_k:]
+
+        # Log decisions
+        if self.logging_enabled:
+            if token_indices is None:
+                token_indices = np.arange(batch_size)
+
+            for i in range(batch_size):
+                decision = RoutingDecision(
+                    token_idx=int(token_indices[i]),
+                    layer_idx=self.layer_idx,
+                    logits=logits[i].copy(),
+                    pressure_bias=scaled_pressure.copy(),  # Log scaled pressure
+                    adjusted_logits=adjusted_logits[i].copy(),
+                    gate_weights=gate_weights[i].copy(),
+                    top_k_experts=top_k_experts[i].copy(),
+                )
+                self.log.add(decision)
+
+        return gate_weights
+
+    def forward_with_temperature(
+        self,
+        x: np.ndarray,
+        temperatures: np.ndarray,
+        pressure_scale: float = 1.0,
+        temp_scale: float = 1.0,
+        token_indices: Optional[np.ndarray] = None,
+        top_k: int = 2,
+    ) -> np.ndarray:
+        """
+        Forward pass with per-expert temperature warping.
+
+        This creates a 2-field routing environment:
+        - Pressure (b_k): force field that pushes toward/away from experts
+        - Temperature (T_k): permeability that controls how slippery each region is
+
+        The combined formula:
+            logits'_k = (logits_k + pressure_scale * b_k) / (temp_scale * T_k)
+            probs = softmax(logits')
+
+        High temperature = diffuse routing (exploratory)
+        Low temperature = sharp routing (exploitative)
+
+        Args:
+            x: Input hidden states of shape (batch, input_dim).
+            temperatures: Per-expert temperature vector of shape (n_experts,).
+            pressure_scale: Multiplier for pressure bias (from MetaKnob).
+            temp_scale: Global multiplier for temperatures (κ > 0 → higher temps).
+            token_indices: Optional token indices for logging.
+            top_k: Number of experts to select.
+
+        Returns:
+            Gate weights of shape (batch, n_experts).
+        """
+        batch_size = x.shape[0]
+
+        # Validate temperatures
+        if temperatures.shape != (self.n_experts,):
+            raise ValueError(
+                f"Temperature shape {temperatures.shape} doesn't match n_experts {self.n_experts}"
+            )
+
+        # Compute raw logits
+        logits = self.compute_logits(x)
+
+        # Get pressure bias and apply scale
+        pressure = self.get_pressure()
+        scaled_pressure = pressure * pressure_scale
+
+        # Inject pressure
+        adjusted_logits = logits + scaled_pressure[np.newaxis, :]
+
+        # Apply per-expert temperature scaling
+        # T_k modulated by global temp_scale from knob
+        effective_temps = temperatures * temp_scale
+
+        # Clamp to prevent division issues
+        effective_temps = np.clip(effective_temps, 0.1, 10.0)
+
+        # Temperature-warped routing: divide each expert's logits by its temperature
+        # logits'_k = adjusted_logits_k / T_k
+        warped_logits = adjusted_logits / effective_temps[np.newaxis, :]
+
+        # Softmax (no additional temperature - already applied per-expert)
+        exp_logits = np.exp(warped_logits - warped_logits.max(axis=1, keepdims=True))
+        gate_weights = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+
+        # Get top-k experts
+        top_k_experts = np.argsort(gate_weights, axis=1)[:, -top_k:]
+
+        # Log decisions
+        if self.logging_enabled:
+            if token_indices is None:
+                token_indices = np.arange(batch_size)
+
+            for i in range(batch_size):
+                decision = RoutingDecision(
+                    token_idx=int(token_indices[i]),
+                    layer_idx=self.layer_idx,
+                    logits=logits[i].copy(),
+                    pressure_bias=scaled_pressure.copy(),
+                    adjusted_logits=warped_logits[i].copy(),  # Log warped logits
+                    gate_weights=gate_weights[i].copy(),
+                    top_k_experts=top_k_experts[i].copy(),
+                )
+                self.log.add(decision)
+
+        return gate_weights

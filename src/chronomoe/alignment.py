@@ -200,6 +200,80 @@ class AlignmentMatrix:
             "events": events,
         }
 
+    def update_with_knob(
+        self,
+        chrono_confidence: np.ndarray,
+        moe_specialization: np.ndarray,
+        alignment_lr_mul: float = 1.0,
+        current_tick: int = 0,
+    ) -> dict:
+        """
+        Update alignment matrix with meta-knob modulation.
+
+        This extends update() with knob-controlled learning rate:
+        - alignment_lr_mul > 1 → faster adaptation (κ > 0)
+        - alignment_lr_mul < 1 → slower/frozen adaptation (κ < 0)
+        - alignment_lr_mul = 0 → completely frozen
+
+        Args:
+            chrono_confidence: (N_chrono,) confidence per Chronovisor expert.
+            moe_specialization: (N_moe,) specialization per MoE expert.
+            alignment_lr_mul: Multiplier for learning rate (from MetaKnob).
+            current_tick: Current tick for event logging.
+
+        Returns:
+            Update diagnostics.
+        """
+        assert chrono_confidence.shape == (self.n_chrono,)
+        assert moe_specialization.shape == (self.n_moe,)
+
+        # Store old A for comparison
+        A_old = self.A.copy()
+
+        # Compute effective learning rate
+        effective_eta = self.eta_A * alignment_lr_mul
+
+        # If learning rate is effectively zero, skip update
+        if effective_eta < 1e-10:
+            return {
+                "delta_A_norm": 0.0,
+                "max_alignment": float(self.A.max()),
+                "min_alignment": float(self.A.min()),
+                "entropy": self.alignment_entropy(),
+                "events": [],
+                "frozen": True,
+            }
+
+        # Compute update target
+        CS = np.outer(chrono_confidence, moe_specialization)
+        target = softmax(CS, axis=1, temperature=self.temperature)
+
+        # EMA update with modulated learning rate
+        self.A = (1 - effective_eta) * self.A + effective_eta * target
+
+        # Re-normalize rows
+        self.A = self.A / self.A.sum(axis=1, keepdims=True)
+
+        # Track dead alignments
+        self._update_dead_tracking(current_tick)
+
+        # Check for structural events
+        events = self._check_structural_events(A_old, current_tick)
+
+        # Update history
+        self.A_history.append(self.A.copy())
+        self.total_updates += 1
+
+        return {
+            "delta_A_norm": float(np.linalg.norm(self.A - A_old)),
+            "max_alignment": float(self.A.max()),
+            "min_alignment": float(self.A.min()),
+            "entropy": self.alignment_entropy(),
+            "events": events,
+            "effective_eta": effective_eta,
+            "frozen": False,
+        }
+
     def _update_dead_tracking(self, current_tick: int) -> None:
         """Track how long each alignment has been below dead threshold."""
         dead_mask = self.A < self.dead_threshold
