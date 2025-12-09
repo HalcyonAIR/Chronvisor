@@ -37,8 +37,9 @@ class KnobFactors:
     kappa: float  # Raw κ value
 
     pressure_scale: float  # Multiplier for pressure bias
-    explore_bias: float  # Softmax temperature multiplier
+    explore_bias: float  # Softmax temperature multiplier (deprecated, use temp_scale)
     alignment_lr_mul: float  # Alignment learning rate multiplier
+    temp_scale: float = 1.0  # Per-expert temperature field multiplier
 
     # Derived intent (optional, from LLM)
     intent: str = ""
@@ -128,8 +129,9 @@ class MetaKnob:
 
     # Sensitivity parameters (how much κ affects each factor)
     beta_pressure: float = 0.5  # exp(0.5 × ±1) ≈ 0.6 to 1.6
-    beta_explore: float = 0.3  # exp(0.3 × ±1) ≈ 0.7 to 1.3
+    beta_explore: float = 0.3  # exp(0.3 × ±1) ≈ 0.7 to 1.3 (deprecated)
     beta_alignment: float = 0.7  # exp(0.7 × ±1) ≈ 0.5 to 2.0
+    beta_temperature: float = 0.4  # exp(0.4 × ±1) ≈ 0.67 to 1.5
 
     # Bounds for κ
     kappa_min: float = -1.0
@@ -185,6 +187,7 @@ class MetaKnob:
             pressure_scale=math.exp(self.beta_pressure * kappa),
             explore_bias=math.exp(self.beta_explore * kappa),
             alignment_lr_mul=math.exp(self.beta_alignment * kappa),
+            temp_scale=math.exp(self.beta_temperature * kappa),
             intent=self.current_intent,
         )
 
@@ -217,6 +220,7 @@ class MetaKnob:
             "pressure_scale": factors.pressure_scale,
             "explore_bias": factors.explore_bias,
             "alignment_lr_mul": factors.alignment_lr_mul,
+            "temp_scale": factors.temp_scale,
             "history_len": len(self.kappa_history),
             "kappa_mean": np.mean(self.kappa_history) if self.kappa_history else 0.0,
             "kappa_std": np.std(self.kappa_history) if self.kappa_history else 0.0,

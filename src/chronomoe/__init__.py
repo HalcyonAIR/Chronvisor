@@ -21,12 +21,13 @@ Modules:
 
 from chronomoe.moe import Expert, MoE
 from chronomoe.router import Router, RoutingLog
-from chronomoe.bridge import ChronoMoEBridge
+from chronomoe.bridge import ChronoMoEBridge, TemperatureField
 from chronomoe.alignment import AlignmentMatrix, StructuralAligner, AlignmentEvent
 from chronomoe.knob import MetaKnob, KnobFactors, KnobState, KnobDecision, RuleBasedKnobController
 from chronomoe.experiment import SyntheticTask, Experiment, ExperimentMetrics
 from chronomoe.experiment_v7 import V7Experiment, V7Metrics, run_v7_experiment
 from chronomoe.experiment_knob import KnobExperimentMetrics, KnobExperimentConfig, run_knob_experiment
+from chronomoe.experiment_temperature import TemperatureExperimentMetrics, TemperatureExperimentConfig, run_temperature_experiment
 
 __all__ = [
     # V1: Core MoE
@@ -55,4 +56,9 @@ __all__ = [
     "KnobExperimentMetrics",
     "KnobExperimentConfig",
     "run_knob_experiment",
+    # Temperature Field
+    "TemperatureField",
+    "TemperatureExperimentMetrics",
+    "TemperatureExperimentConfig",
+    "run_temperature_experiment",
 ]
