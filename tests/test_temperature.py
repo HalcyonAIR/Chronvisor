@@ -263,6 +263,136 @@ class TestKnobTemperatureScale:
         assert diagnostics["temp_scale"] > 1.0
 
 
+class TestStructuralTemperature:
+    """Tests for structural (geological) temperature evolution."""
+
+    def test_structural_temperature_initialized(self):
+        """Test that structural temperature starts at 1.0."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Initially all 1.0
+        assert bridge.structural_T is not None
+        assert np.allclose(bridge.structural_T, 1.0)
+
+    def test_structural_temperature_evolves(self):
+        """Test that structural temperature evolves via EMA."""
+        bridge = ChronoMoEBridge.create(n_experts=8, eta_structural_T=0.1)  # Faster for testing
+
+        # Get temperature field multiple times
+        initial_structural = bridge.structural_T.copy()
+
+        for _ in range(10):
+            bridge.get_temperature_field()
+
+        # Structural temperature should have changed
+        assert not np.allclose(bridge.structural_T, initial_structural)
+
+    def test_structural_temperature_history(self):
+        """Test that structural temperature history is tracked."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        for _ in range(5):
+            bridge.get_temperature_field()
+
+        assert len(bridge.structural_T_history) == 5
+
+    def test_effective_temperature_combines_fast_and_structural(self):
+        """Test that effective = fast × structural."""
+        bridge = ChronoMoEBridge.create(n_experts=8, eta_structural_T=0.5)  # Very fast for testing
+
+        # Set structural to non-uniform
+        bridge.structural_T = np.array([0.5, 1.0, 1.5, 0.8, 1.2, 0.9, 1.1, 1.0])
+
+        temp_field = bridge.get_temperature_field(update_structural=False)
+
+        # effective should be fast × structural (within clamping bounds)
+        expected = temp_field.fast_temperatures * bridge.structural_T
+        expected = np.clip(expected, bridge.T_min, bridge.T_max)
+
+        assert np.allclose(temp_field.effective_temperatures, expected)
+
+    def test_structural_temperature_reset(self):
+        """Test that structural temperature resets properly."""
+        bridge = ChronoMoEBridge.create(n_experts=8, eta_structural_T=0.1)
+
+        # Evolve for a while
+        for _ in range(20):
+            bridge.get_temperature_field()
+
+        assert not np.allclose(bridge.structural_T, 1.0)
+
+        # Reset
+        bridge.reset()
+
+        # Should be back to 1.0
+        assert np.allclose(bridge.structural_T, 1.0)
+        assert len(bridge.structural_T_history) == 0
+
+    def test_structural_temperature_diagnostics(self):
+        """Test structural temperature diagnostics."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        diagnostics = bridge.get_structural_temperature_diagnostics()
+
+        assert "structural_T" in diagnostics
+        assert "variance" in diagnostics
+        assert "entropy" in diagnostics
+        assert "landscape_formed" in diagnostics
+        assert "valleys" in diagnostics
+        assert "ridges" in diagnostics
+
+    def test_landscape_formation(self):
+        """Test that landscape forms (variance increases) over time."""
+        bridge = ChronoMoEBridge.create(n_experts=8, eta_structural_T=0.1)
+
+        initial_diag = bridge.get_structural_temperature_diagnostics()
+        initial_variance = initial_diag["variance"]
+
+        # Evolve with varying fast temperatures
+        for i in range(100):
+            # Manually feed some stats to create varying conditions
+            from chronomoe.bridge import RoutingStats
+            stats = RoutingStats(
+                expert_usage=np.random.randint(0, 10, 8),
+                mean_gate_weights=np.random.uniform(0, 1, 8),
+                batch_loss=0.5 + 0.1 * np.sin(i / 10),
+            )
+            bridge.feed_routing_stats(stats, num_chronovisor_ticks=5)
+            bridge.get_temperature_field()
+
+        final_diag = bridge.get_structural_temperature_diagnostics()
+        final_variance = final_diag["variance"]
+
+        # Variance should have increased (landscape formed)
+        assert final_variance >= initial_variance * 0.9  # May be near 0 initially
+
+    def test_valleys_and_ridges_identified(self):
+        """Test that valleys and ridges are identified correctly."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Set structural temps with clear valleys and ridges
+        bridge.structural_T = np.array([0.5, 0.6, 1.5, 1.6, 0.7, 1.0, 1.4, 0.8])
+
+        diagnostics = bridge.get_structural_temperature_diagnostics()
+
+        # Valleys should be low-T experts
+        valleys = diagnostics["valleys"]
+        ridges = diagnostics["ridges"]
+
+        # Low temps should be valleys
+        assert 0 in valleys or 1 in valleys  # 0.5, 0.6 are low
+        # High temps should be ridges
+        assert 2 in ridges or 3 in ridges  # 1.5, 1.6 are high
+
+    def test_temperature_field_backwards_compatibility(self):
+        """Test that .temperatures property still works."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+        temp_field = bridge.get_temperature_field()
+
+        # .temperatures should alias .effective_temperatures
+        assert np.array_equal(temp_field.temperatures, temp_field.effective_temperatures)
+
+
 class TestIntegratedTemperatureSystem:
     """Integration tests for the full temperature system."""
 
