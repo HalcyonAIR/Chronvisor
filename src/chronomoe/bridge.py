@@ -656,6 +656,103 @@ class ChronoMoEBridge:
             "evolution_steps": len(self.structural_T_history),
         }
 
+    def get_valley_health_diagnostics(self) -> dict:
+        """
+        Monitor valley health to detect "bad valleys" (low T̄ + low reliability).
+
+        This diagnostic helps verify that the self-correction mechanism is working:
+        - Bad experts should have high T_fast (behavioral avoidance)
+        - Over time, their T̄ should rise (structural correction)
+        - Persistent bad valleys indicate the mechanism is failing
+
+        The design relies on reliability → T_fast → T̄ feedback, not asymmetric
+        erosion. This diagnostic lets us monitor if that assumption holds.
+
+        Returns:
+            Dictionary with valley health analysis.
+        """
+        if self.structural_T is None:
+            return {
+                "valleys": [],
+                "valley_health": {},
+                "healthy_valleys": [],
+                "unhealthy_valleys": [],
+                "at_risk_experts": [],
+                "mean_valley_health": 1.0,
+                "self_correction_working": True,
+            }
+
+        n = min(self.n_experts, len(self.controller.experts))
+        structural_T = self.structural_T
+
+        # Identify valleys
+        mean_T = float(np.mean(structural_T))
+        std_T = float(np.std(structural_T))
+        threshold_valley = mean_T - 0.5 * std_T
+
+        valleys = [i for i in range(n) if structural_T[i] < threshold_valley]
+
+        # Compute reliability for each expert
+        reliabilities = {}
+        for i in range(n):
+            expert = self.controller.experts[i]
+            reliabilities[i] = _sigmoid(self.beta_s * expert.s)
+
+        # Valley health = reliability (for valleys only)
+        # High reliability + valley = good (healthy valley)
+        # Low reliability + valley = bad (unhealthy valley, should self-correct)
+        valley_health = {}
+        healthy_valleys = []
+        unhealthy_valleys = []
+
+        reliability_threshold = 0.5  # Below this = unhealthy
+
+        for v in valleys:
+            health = reliabilities[v]
+            valley_health[v] = health
+            if health >= reliability_threshold:
+                healthy_valleys.append(v)
+            else:
+                unhealthy_valleys.append(v)
+
+        # Identify "at risk" experts: high T_fast but still low T̄
+        # These are experts trending toward bad valley if T_fast stays high
+        at_risk_experts = []
+        if self.temperature_history:
+            latest_T_fast = self.temperature_history[-1]
+            for i in range(n):
+                is_hot = latest_T_fast[i] > mean_T + 0.5 * std_T
+                is_still_valley = structural_T[i] < threshold_valley
+                if is_hot and is_still_valley:
+                    # High T_fast (behavioral avoidance) but still a valley
+                    # This means structural correction is lagging
+                    at_risk_experts.append(i)
+
+        # Mean valley health
+        if valley_health:
+            mean_health = sum(valley_health.values()) / len(valley_health)
+        else:
+            mean_health = 1.0  # No valleys = healthy
+
+        # Self-correction is working if:
+        # 1. No persistent unhealthy valleys (they should fill in)
+        # 2. At-risk experts list is small or empty
+        self_correction_working = (
+            len(unhealthy_valleys) == 0 or
+            len(at_risk_experts) < len(unhealthy_valleys)  # Correction in progress
+        )
+
+        return {
+            "valleys": valleys,
+            "valley_health": valley_health,
+            "healthy_valleys": healthy_valleys,
+            "unhealthy_valleys": unhealthy_valleys,
+            "at_risk_experts": at_risk_experts,
+            "mean_valley_health": mean_health,
+            "reliabilities": reliabilities,
+            "self_correction_working": self_correction_working,
+        }
+
     def reset(self, seed: int = 42) -> None:
         """
         Reset the bridge to initial state.

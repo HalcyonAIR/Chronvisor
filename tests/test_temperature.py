@@ -393,6 +393,143 @@ class TestStructuralTemperature:
         assert np.array_equal(temp_field.temperatures, temp_field.effective_temperatures)
 
 
+class TestValleyHealthDiagnostics:
+    """Tests for valley health monitoring (bad valley detection)."""
+
+    def test_valley_health_diagnostics_structure(self):
+        """Test that valley health diagnostics returns expected structure."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        assert "valleys" in diagnostics
+        assert "valley_health" in diagnostics
+        assert "healthy_valleys" in diagnostics
+        assert "unhealthy_valleys" in diagnostics
+        assert "at_risk_experts" in diagnostics
+        assert "mean_valley_health" in diagnostics
+        assert "reliabilities" in diagnostics
+        assert "self_correction_working" in diagnostics
+
+    def test_valley_health_with_no_valleys(self):
+        """Test diagnostics when no valleys have formed."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+        # All structural_T = 1.0, so no valleys
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        assert diagnostics["valleys"] == []
+        assert diagnostics["valley_health"] == {}
+        assert diagnostics["healthy_valleys"] == []
+        assert diagnostics["unhealthy_valleys"] == []
+        assert diagnostics["mean_valley_health"] == 1.0
+        assert diagnostics["self_correction_working"] is True
+
+    def test_healthy_valley_detection(self):
+        """Test that valleys with high reliability are marked healthy."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Create a clear valley
+        bridge.structural_T = np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5])
+
+        # Make expert 0 reliable (high s)
+        bridge.controller.experts[0].s = 1.0  # High reliability
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        # Expert 0 should be a healthy valley
+        assert 0 in diagnostics["valleys"]
+        assert 0 in diagnostics["healthy_valleys"]
+        assert 0 not in diagnostics["unhealthy_valleys"]
+        assert diagnostics["valley_health"].get(0, 0) > 0.5
+
+    def test_unhealthy_valley_detection(self):
+        """Test that valleys with low reliability are marked unhealthy."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Create a clear valley
+        bridge.structural_T = np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5])
+
+        # Make expert 0 unreliable (low s)
+        bridge.controller.experts[0].s = -1.0  # Low reliability
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        # Expert 0 should be an unhealthy valley
+        assert 0 in diagnostics["valleys"]
+        assert 0 in diagnostics["unhealthy_valleys"]
+        assert 0 not in diagnostics["healthy_valleys"]
+        assert diagnostics["valley_health"].get(0, 1) < 0.5
+
+    def test_at_risk_expert_detection(self):
+        """Test detection of experts with high T_fast but still in valley."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Create a valley for expert 0
+        bridge.structural_T = np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5])
+
+        # Make expert 0 unreliable so T_fast is high
+        bridge.controller.experts[0].s = -2.0  # Very low reliability
+
+        # Get temperature field to populate temperature_history
+        bridge.get_temperature_field()
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        # Expert 0 should be at risk (high T_fast, still valley)
+        # This indicates structural correction is lagging
+        assert 0 in diagnostics["at_risk_experts"] or 0 in diagnostics["unhealthy_valleys"]
+
+    def test_self_correction_working_flag(self):
+        """Test that self_correction_working flag is set correctly."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Initially, no valleys, so self-correction is "working" (nothing to correct)
+        diagnostics = bridge.get_valley_health_diagnostics()
+        assert diagnostics["self_correction_working"] is True
+
+        # Create healthy valleys only
+        bridge.structural_T = np.array([0.5, 0.6, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5])
+        for i in [0, 1]:
+            bridge.controller.experts[i].s = 1.0  # High reliability
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+        # Should still be working - only healthy valleys
+        assert len(diagnostics["unhealthy_valleys"]) == 0
+
+    def test_reliabilities_returned(self):
+        """Test that reliabilities are returned for all experts."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Set different reliability values
+        for i, expert in enumerate(bridge.controller.experts[:8]):
+            expert.s = (i - 4) / 2  # Range from -2 to +1.5
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        # Should have reliability for each expert
+        assert len(diagnostics["reliabilities"]) == 8
+
+        # Reliabilities should be in [0, 1] (sigmoid output)
+        for rel in diagnostics["reliabilities"].values():
+            assert 0 <= rel <= 1
+
+    def test_mean_valley_health_computation(self):
+        """Test mean valley health is computed correctly."""
+        bridge = ChronoMoEBridge.create(n_experts=8)
+
+        # Create two valleys with known reliabilities
+        bridge.structural_T = np.array([0.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2])
+        bridge.controller.experts[0].s = 1.0  # High reliability
+        bridge.controller.experts[1].s = -1.0  # Low reliability
+
+        diagnostics = bridge.get_valley_health_diagnostics()
+
+        # Mean should be average of the two valley healths
+        if len(diagnostics["valleys"]) >= 2:
+            health_values = list(diagnostics["valley_health"].values())
+            expected_mean = sum(health_values) / len(health_values)
+            assert abs(diagnostics["mean_valley_health"] - expected_mean) < 0.01
+
+
 class TestIntegratedTemperatureSystem:
     """Integration tests for the full temperature system."""
 
