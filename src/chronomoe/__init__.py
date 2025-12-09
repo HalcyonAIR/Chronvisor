@@ -17,6 +17,8 @@ Modules:
     experiment: V1 driver for baseline vs pressure experiments
     experiment_v7: V7 driver with structural alignment tracking
     experiment_knob: Meta-knob experiment comparing control strategies
+    experiment_temperature: Temperature field experiment (Pressure × Temperature)
+    experiment_structural: Structural temperature experiment (landscape formation)
 """
 
 from chronomoe.moe import Expert, MoE
@@ -28,6 +30,7 @@ from chronomoe.experiment import SyntheticTask, Experiment, ExperimentMetrics
 from chronomoe.experiment_v7 import V7Experiment, V7Metrics, run_v7_experiment
 from chronomoe.experiment_knob import KnobExperimentMetrics, KnobExperimentConfig, run_knob_experiment
 from chronomoe.experiment_temperature import TemperatureExperimentMetrics, TemperatureExperimentConfig, run_temperature_experiment
+from chronomoe.experiment_structural import LandscapeMetrics, LandscapeExperimentConfig, run_landscape_experiment
 
 __all__ = [
     # V1: Core MoE
@@ -61,4 +64,8 @@ __all__ = [
     "TemperatureExperimentMetrics",
     "TemperatureExperimentConfig",
     "run_temperature_experiment",
+    # Structural Temperature (Landscape Formation)
+    "LandscapeMetrics",
+    "LandscapeExperimentConfig",
+    "run_landscape_experiment",
 ]

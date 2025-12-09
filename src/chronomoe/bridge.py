@@ -70,18 +70,29 @@ class TemperatureField:
     """
     Per-expert temperature field for routing topology.
 
-    T_k = base_T * f_temperature(k)
+    Fast temperature:
+        T_fast_k = base_T × coherence_factor × drift_factor_k × reliability_factor_k
 
-    Where f_temperature combines:
-    - Coherence factor: (1 + β_R * (1 - R)) - low coherence → high temp
-    - Drift factor: (1 + β_drift * normalized_drift_k) - drifting → high temp
-    - Reliability factor: (1 - β_s * sigmoid(s_k)) - unreliable → high temp
+    Effective temperature (includes structural/geological):
+        T_effective_k = T_fast_k × T̄_structural_k
 
-    High temperature = diffuse, exploratory, easy to select
-    Low temperature = sharp, exploitative, hard to select
+    The structural temperature evolves slowly via EMA, creating "geology":
+    - Regions with consistently high T become ridges (permanently hot)
+    - Regions with consistently low T become valleys (permanently cold)
+
+    High temperature = diffuse, exploratory, muddy terrain
+    Low temperature = sharp, exploitative, solid bedrock
     """
 
-    temperatures: np.ndarray  # T_k for each expert
+    # Fast-time temperature (instantaneous)
+    fast_temperatures: np.ndarray  # T_fast_k for each expert
+
+    # Structural temperature (slow geological evolution)
+    structural_temperatures: np.ndarray  # T̄_k for each expert
+
+    # Effective temperature (what routing actually uses)
+    effective_temperatures: np.ndarray  # T_effective_k = T_fast × T̄_structural
+
     base_temperature: float
     coherence_R: float  # Current system coherence
 
@@ -89,6 +100,12 @@ class TemperatureField:
     coherence_factor: float  # Global factor from R
     drift_factors: np.ndarray  # Per-expert drift contribution
     reliability_factors: np.ndarray  # Per-expert reliability contribution
+
+    # Backwards compatibility alias
+    @property
+    def temperatures(self) -> np.ndarray:
+        """Alias for effective_temperatures (backwards compatibility)."""
+        return self.effective_temperatures
 
 
 @dataclass
@@ -134,6 +151,10 @@ class ChronoMoEBridge:
     T_min: float = 0.3  # Minimum temperature (sharp routing)
     T_max: float = 3.0  # Maximum temperature (diffuse routing)
 
+    # Structural temperature (slow geological evolution)
+    eta_structural_T: float = 0.01  # Very slow EMA rate (geological timescale)
+    structural_T: np.ndarray = field(default=None, repr=False)  # Per-expert structural temp
+
     # Stats tracking
     total_ticks: int = 0
     total_macro_ticks: int = 0
@@ -141,6 +162,7 @@ class ChronoMoEBridge:
     # History for analysis
     pressure_history: list = field(default_factory=list)
     temperature_history: list = field(default_factory=list)
+    structural_T_history: list = field(default_factory=list)
     R_history: list = field(default_factory=list)
 
     @classmethod
@@ -157,6 +179,8 @@ class ChronoMoEBridge:
         beta_reliability: float = 0.2,
         T_min: float = 0.3,
         T_max: float = 3.0,
+        # Structural temperature (geological) parameters
+        eta_structural_T: float = 0.01,
         # Controller parameters
         seed: int = 42,
         micro_period: int = 5,
@@ -177,6 +201,7 @@ class ChronoMoEBridge:
             beta_reliability: Reliability factor (low s → high T).
             T_min: Minimum temperature bound.
             T_max: Maximum temperature bound.
+            eta_structural_T: EMA rate for structural temperature (slow, ~0.01).
             seed: Random seed for reproducibility.
             micro_period: Fast ticks between micro updates.
             macro_period: Micro ticks between macro updates.
@@ -233,6 +258,8 @@ class ChronoMoEBridge:
             beta_reliability=beta_reliability,
             T_min=T_min,
             T_max=T_max,
+            eta_structural_T=eta_structural_T,
+            structural_T=np.ones(n_experts),  # Initialize to 1.0 (neutral terrain)
         )
 
     def translate_routing_to_alignment(
@@ -412,24 +439,34 @@ class ChronoMoEBridge:
             alpha_C=self.alpha_C,
         )
 
-    def get_temperature_field(self) -> TemperatureField:
+    def get_temperature_field(self, update_structural: bool = True) -> TemperatureField:
         """
         Compute per-expert temperature field from Chronovisor state.
 
-        T_k = base_T * (1 + β_R*(1-R)) * (1 + β_drift*d_k) * (1 + β_s*(1-σ(s_k)))
+        Fast temperature (instantaneous):
+            T_fast_k = base_T × (1 + β_R(1-R)) × (1 + β_drift·d_k) × (1 + β_s(1-σ(s_k)))
 
-        Where:
-        - R = global coherence (Kuramoto order parameter)
-        - d_k = normalized drift distance for expert k
-        - s_k = reliability score for expert k
+        Structural temperature (slow geological evolution):
+            T̄_k(t+1) = (1 - η_T) × T̄_k(t) + η_T × T_fast_k(t)
 
-        High temperature = diffuse routing (exploratory)
-        Low temperature = sharp routing (exploitative)
+        Effective temperature (what routing uses):
+            T_effective_k = T_fast_k × T̄_k
+
+        The structural temperature creates "geology":
+        - Consistently hot regions become ridges (permanently high T)
+        - Consistently cold regions become valleys (permanently low T)
+
+        Args:
+            update_structural: Whether to update structural temperatures via EMA.
 
         Returns:
-            TemperatureField with all components.
+            TemperatureField with fast, structural, and effective temperatures.
         """
         n = min(self.n_experts, len(self.controller.experts))
+
+        # Initialize structural_T if needed
+        if self.structural_T is None:
+            self.structural_T = np.ones(self.n_experts)
 
         # Get current coherence R
         if self.R_history:
@@ -462,22 +499,39 @@ class ChronoMoEBridge:
             reliability = _sigmoid(self.beta_s * expert.s)
             reliability_factors[i] = 1.0 + self.beta_reliability * (1.0 - reliability)
 
-        # Combine all factors
-        temperatures = (
+        # Compute fast temperatures (instantaneous)
+        fast_temperatures = (
             self.base_temperature
             * coherence_factor
             * drift_factors
             * reliability_factors
         )
 
-        # Clamp to bounds
-        temperatures = np.clip(temperatures, self.T_min, self.T_max)
+        # Clamp fast temperatures
+        fast_temperatures = np.clip(fast_temperatures, self.T_min, self.T_max)
+
+        # Update structural temperature via EMA (geological erosion)
+        if update_structural:
+            self.structural_T = (
+                (1 - self.eta_structural_T) * self.structural_T
+                + self.eta_structural_T * fast_temperatures
+            )
+
+        # Compute effective temperature = fast × structural
+        # This is what routing actually uses
+        effective_temperatures = fast_temperatures * self.structural_T
+
+        # Clamp effective temperatures
+        effective_temperatures = np.clip(effective_temperatures, self.T_min, self.T_max)
 
         # Store in history
-        self.temperature_history.append(temperatures.copy())
+        self.temperature_history.append(fast_temperatures.copy())
+        self.structural_T_history.append(self.structural_T.copy())
 
         return TemperatureField(
-            temperatures=temperatures,
+            fast_temperatures=fast_temperatures,
+            structural_temperatures=self.structural_T.copy(),
+            effective_temperatures=effective_temperatures,
             base_temperature=self.base_temperature,
             coherence_R=R,
             coherence_factor=coherence_factor,
@@ -518,6 +572,18 @@ class ChronoMoEBridge:
         """
         experts = self.controller.experts[:self.n_experts]
 
+        # Structural temperature stats
+        if self.structural_T is not None:
+            structural_T_mean = float(np.mean(self.structural_T))
+            structural_T_std = float(np.std(self.structural_T))
+            structural_T_min = float(np.min(self.structural_T))
+            structural_T_max = float(np.max(self.structural_T))
+        else:
+            structural_T_mean = 1.0
+            structural_T_std = 0.0
+            structural_T_min = 1.0
+            structural_T_max = 1.0
+
         return {
             "total_ticks": self.total_ticks,
             "total_macro_ticks": self.total_macro_ticks,
@@ -529,6 +595,162 @@ class ChronoMoEBridge:
             "avg_lambd": sum(e.lambd for e in experts) / len(experts) if experts else 0.0,
             "avg_drift": sum(e.drift_distance() for e in experts) / len(experts) if experts else 0.0,
             "mode": self.controller.current_mode,
+            # Structural temperature diagnostics
+            "structural_T_mean": structural_T_mean,
+            "structural_T_std": structural_T_std,
+            "structural_T_min": structural_T_min,
+            "structural_T_max": structural_T_max,
+        }
+
+    def get_structural_temperature_diagnostics(self) -> dict:
+        """
+        Get detailed structural temperature diagnostics for visualization.
+
+        Returns:
+            Dictionary with structural temperature analysis.
+        """
+        if self.structural_T is None:
+            return {
+                "structural_T": np.ones(self.n_experts),
+                "variance": 0.0,
+                "entropy": 0.0,
+                "landscape_formed": False,
+                "valleys": [],
+                "ridges": [],
+                "evolution_steps": 0,
+            }
+
+        structural_T = self.structural_T
+
+        # Basic stats
+        variance = float(np.var(structural_T))
+        mean = float(np.mean(structural_T))
+
+        # Normalized entropy of structural temperature distribution
+        # Low entropy = specialized landscape (clear valleys/ridges)
+        # High entropy = flat landscape
+        normalized = structural_T / structural_T.sum()
+        entropy = float(-np.sum(normalized * np.log(normalized + 1e-10)))
+        max_entropy = np.log(len(structural_T))
+        normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # Identify valleys (low T, stable regions) and ridges (high T, unstable)
+        threshold_low = mean - 0.5 * np.std(structural_T)
+        threshold_high = mean + 0.5 * np.std(structural_T)
+
+        valleys = [i for i, t in enumerate(structural_T) if t < threshold_low]
+        ridges = [i for i, t in enumerate(structural_T) if t > threshold_high]
+
+        # Landscape is "formed" when variance exceeds threshold
+        landscape_formed = bool(variance > 0.01)
+
+        return {
+            "structural_T": structural_T.copy(),
+            "variance": variance,
+            "mean": mean,
+            "std": float(np.std(structural_T)),
+            "entropy": normalized_entropy,
+            "landscape_formed": landscape_formed,
+            "valleys": valleys,  # Experts that became stable (low T)
+            "ridges": ridges,  # Experts that became unstable (high T)
+            "evolution_steps": len(self.structural_T_history),
+        }
+
+    def get_valley_health_diagnostics(self) -> dict:
+        """
+        Monitor valley health to detect "bad valleys" (low T̄ + low reliability).
+
+        This diagnostic helps verify that the self-correction mechanism is working:
+        - Bad experts should have high T_fast (behavioral avoidance)
+        - Over time, their T̄ should rise (structural correction)
+        - Persistent bad valleys indicate the mechanism is failing
+
+        The design relies on reliability → T_fast → T̄ feedback, not asymmetric
+        erosion. This diagnostic lets us monitor if that assumption holds.
+
+        Returns:
+            Dictionary with valley health analysis.
+        """
+        if self.structural_T is None:
+            return {
+                "valleys": [],
+                "valley_health": {},
+                "healthy_valleys": [],
+                "unhealthy_valleys": [],
+                "at_risk_experts": [],
+                "mean_valley_health": 1.0,
+                "self_correction_working": True,
+            }
+
+        n = min(self.n_experts, len(self.controller.experts))
+        structural_T = self.structural_T
+
+        # Identify valleys
+        mean_T = float(np.mean(structural_T))
+        std_T = float(np.std(structural_T))
+        threshold_valley = mean_T - 0.5 * std_T
+
+        valleys = [i for i in range(n) if structural_T[i] < threshold_valley]
+
+        # Compute reliability for each expert
+        reliabilities = {}
+        for i in range(n):
+            expert = self.controller.experts[i]
+            reliabilities[i] = _sigmoid(self.beta_s * expert.s)
+
+        # Valley health = reliability (for valleys only)
+        # High reliability + valley = good (healthy valley)
+        # Low reliability + valley = bad (unhealthy valley, should self-correct)
+        valley_health = {}
+        healthy_valleys = []
+        unhealthy_valleys = []
+
+        reliability_threshold = 0.5  # Below this = unhealthy
+
+        for v in valleys:
+            health = reliabilities[v]
+            valley_health[v] = health
+            if health >= reliability_threshold:
+                healthy_valleys.append(v)
+            else:
+                unhealthy_valleys.append(v)
+
+        # Identify "at risk" experts: high T_fast but still low T̄
+        # These are experts trending toward bad valley if T_fast stays high
+        at_risk_experts = []
+        if self.temperature_history:
+            latest_T_fast = self.temperature_history[-1]
+            for i in range(n):
+                is_hot = latest_T_fast[i] > mean_T + 0.5 * std_T
+                is_still_valley = structural_T[i] < threshold_valley
+                if is_hot and is_still_valley:
+                    # High T_fast (behavioral avoidance) but still a valley
+                    # This means structural correction is lagging
+                    at_risk_experts.append(i)
+
+        # Mean valley health
+        if valley_health:
+            mean_health = sum(valley_health.values()) / len(valley_health)
+        else:
+            mean_health = 1.0  # No valleys = healthy
+
+        # Self-correction is working if:
+        # 1. No persistent unhealthy valleys (they should fill in)
+        # 2. At-risk experts list is small or empty
+        self_correction_working = (
+            len(unhealthy_valleys) == 0 or
+            len(at_risk_experts) < len(unhealthy_valleys)  # Correction in progress
+        )
+
+        return {
+            "valleys": valleys,
+            "valley_health": valley_health,
+            "healthy_valleys": healthy_valleys,
+            "unhealthy_valleys": unhealthy_valleys,
+            "at_risk_experts": at_risk_experts,
+            "mean_valley_health": mean_health,
+            "reliabilities": reliabilities,
+            "self_correction_working": self_correction_working,
         }
 
     def reset(self, seed: int = 42) -> None:
@@ -572,4 +794,8 @@ class ChronoMoEBridge:
         self.total_macro_ticks = 0
         self.pressure_history.clear()
         self.temperature_history.clear()
+        self.structural_T_history.clear()
         self.R_history.clear()
+
+        # Reset structural temperature to neutral (flat terrain)
+        self.structural_T = np.ones(self.n_experts)
