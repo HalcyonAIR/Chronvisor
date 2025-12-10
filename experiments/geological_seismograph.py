@@ -193,7 +193,11 @@ class GeologicalSeismograph:
         print(f"   Model: {model.config.num_layers} layers, {model.config.num_experts} experts/layer")
         print(f"   Weights frozen: {sum(1 for p in model.parameters() if not p.requires_grad)} params")
         if fast_geology:
-            print(f"   ⚡ Fast geology mode: η_global=0.05, η_local=0.1 (10x speedup)")
+            print("   " + "=" * 60)
+            print("   ⚠️  FAST GEOLOGY MODE (VISUALIZATION ONLY)")
+            print("   η_global=0.05, η_local=0.1 (10x production speed)")
+            print("   For debugging valley formation - NOT realistic timescales")
+            print("   " + "=" * 60)
         else:
             print(f"   🐌 Realistic geology: η_global=0.005, η_local=0.01")
         print(f"   Output: {self.output_dir}")
