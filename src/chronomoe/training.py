@@ -555,6 +555,9 @@ class TrainingConfig:
     save_every_n_steps: int = 1000
     save_chronovisor_state: bool = True
 
+    # Geological dynamics
+    fast_geology: bool = False  # If True, speed up structural T evolution 10x for debugging
+
     # Logging
     log_every_n_steps: int = 100
     eval_every_n_steps: int = 500
@@ -594,6 +597,13 @@ class ChronoMoETrainer:
 
         # Get controller reference
         self.controller = model.model.controller
+
+        # Apply fast geology if requested (10x speedup for debugging)
+        if config.fast_geology:
+            self.controller.eta_structural_T_global = 0.05  # 10x faster (was 0.005)
+            for lens in self.controller.lenses.values():
+                lens.eta_structural_T = 0.1  # 10x faster (was 0.01)
+            print("⚡ Fast geology mode enabled: η_global=0.05, η_local=0.1 (10x speedup)")
 
         # Initialize loss function
         self.loss_fn = ChronoMoELoss(
