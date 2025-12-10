@@ -286,10 +286,17 @@ class MixtralExpert(nn.Module):
 
 class MixtralRouter(nn.Module):
     """
-    Top-k sparse router for MoE.
+    Top-k sparse router for MoE with P×T (Pressure × Temperature) geometry.
 
     For each token, computes routing probabilities over experts
     and selects the top-k experts to process that token.
+
+    P×T Integration:
+        logits'_k = (logits_k + pressure_k) / temperature_k
+
+    Where:
+        - pressure_k: Force field pushing toward/away from experts
+        - temperature_k: Permeability controlling routing sharpness
     """
 
     def __init__(self, config: MixtralConfig):
@@ -304,13 +311,15 @@ class MixtralRouter(nn.Module):
         self,
         hidden_states: torch.Tensor,
         pressure_bias: Optional[torch.Tensor] = None,
+        temperature_field: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Compute routing weights and selected experts.
+        Compute routing weights and selected experts with P×T geometry.
 
         Args:
             hidden_states: (batch, seq_len, hidden_dim)
             pressure_bias: Optional Chronovisor pressure (num_experts,)
+            temperature_field: Optional per-expert temperatures (num_experts,)
 
         Returns:
             Tuple of:
@@ -326,6 +335,13 @@ class MixtralRouter(nn.Module):
         if pressure_bias is not None:
             router_logits = router_logits + pressure_bias.unsqueeze(0).unsqueeze(0)
 
+        # Apply temperature field if provided
+        if temperature_field is not None:
+            # Temperature warping: divide logits by per-expert temperature
+            # High temp = diffuse (exploratory), Low temp = sharp (exploitative)
+            temp_safe = torch.clamp(temperature_field, min=0.1, max=10.0)
+            router_logits = router_logits / temp_safe.unsqueeze(0).unsqueeze(0)
+
         # Select top-k experts per token
         routing_weights, selected_experts = torch.topk(
             router_logits, self.top_k, dim=-1
@@ -339,7 +355,7 @@ class MixtralRouter(nn.Module):
 
 class MixtralSparseMoELayer(nn.Module):
     """
-    Sparse Mixture-of-Experts layer with Chronovisor integration.
+    Sparse Mixture-of-Experts layer with Chronovisor P×T integration.
 
     Architecture:
         - N experts (default 8)
@@ -347,10 +363,11 @@ class MixtralSparseMoELayer(nn.Module):
         - Each token is processed by k experts
         - Output is a weighted combination
 
-    Chronovisor Integration:
-        - Tracks expert usage statistics
-        - Accepts pressure bias to reshape routing
-        - Feeds routing patterns back to the controller
+    Chronovisor P×T Integration:
+        - Pressure field (P): Force toward/away from experts
+        - Temperature field (T): Per-expert routing permeability
+        - Combined: logits' = (logits + P) / T
+        - Tracks expert usage statistics for feedback
     """
 
     def __init__(self, config: MixtralConfig, layer_idx: int):
@@ -369,14 +386,16 @@ class MixtralSparseMoELayer(nn.Module):
         self.router = MixtralRouter(config)
 
         # Chronovisor state (set externally)
-        self.register_buffer(
-            'pressure_bias',
-            torch.zeros(self.num_experts) if config.enable_chronovisor else None,
-        )
+        if config.enable_chronovisor:
+            self.register_buffer('pressure_bias', torch.zeros(self.num_experts))
+            self.register_buffer('temperature_field', torch.ones(self.num_experts))
+        else:
+            self.register_buffer('pressure_bias', None)
+            self.register_buffer('temperature_field', None)
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, dict]:
         """
-        Forward pass through MoE layer.
+        Forward pass through MoE layer with P×T geometry.
 
         Args:
             hidden_states: (batch, seq_len, hidden_dim)
@@ -388,10 +407,11 @@ class MixtralSparseMoELayer(nn.Module):
         """
         batch_size, seq_len, hidden_dim = hidden_states.shape
 
-        # Compute routing
+        # Compute routing with P×T fields
         routing_weights, selected_experts = self.router(
             hidden_states,
             pressure_bias=self.pressure_bias if self.config.enable_chronovisor else None,
+            temperature_field=self.temperature_field if self.config.enable_chronovisor else None,
         )
 
         # Initialize output
