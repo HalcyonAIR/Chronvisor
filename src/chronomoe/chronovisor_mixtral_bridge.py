@@ -31,6 +31,7 @@ from chronomoe.mixtral_core import (
     MixtralDecoderLayer,
     MixtralSparseMoELayer,
 )
+from chronomoe.knob import MetaKnob, KnobState, KnobDecision, KnobFactors
 
 
 def compute_kuramoto_R_and_psi(phases: np.ndarray) -> Tuple[float, float]:
@@ -288,6 +289,7 @@ class ChronovisorMixtralController:
         temperature_scale: float = 1.0,
         eta_structural_T_global: float = 0.005,  # Even slower than local
         eta_structural_T_local: float = 0.01,
+        enable_meta_knob: bool = True,
     ):
         """
         Initialize controller with hierarchical structural temperature.
@@ -300,6 +302,7 @@ class ChronovisorMixtralController:
             temperature_scale: Global temperature scale factor
             eta_structural_T_global: EMA rate for global structural T (very slow)
             eta_structural_T_local: EMA rate for local structural T (slow)
+            enable_meta_knob: Whether to enable meta-knob modulation
         """
         self.config = config
         self.micro_period = micro_period
@@ -308,6 +311,7 @@ class ChronovisorMixtralController:
         self.temperature_scale = temperature_scale
         self.eta_structural_T_global = eta_structural_T_global
         self.eta_structural_T_local = eta_structural_T_local
+        self.enable_meta_knob = enable_meta_knob
 
         # Create lenses for each layer
         self.lenses: Dict[int, MixtralLens] = {
@@ -342,6 +346,14 @@ class ChronovisorMixtralController:
             i: np.random.uniform(0, 2 * np.pi, config.num_experts)
             for i in range(config.num_layers)
         }
+
+        # Meta-knob for LLM-controlled modulation
+        # κ ∈ [-1, +1] modulates pressure and temperature scales
+        self.meta_knob = MetaKnob(use_smoothing=True) if enable_meta_knob else None
+
+        # Loss tracking for knob state computation
+        self.loss_history: List[float] = []
+        self.current_loss: float = 0.0
 
     def tick(self, routing_stats: Dict[int, dict]) -> ChronovisorMixtralState:
         """
@@ -489,6 +501,9 @@ class ChronovisorMixtralController:
         """
         Get current pressure bias for a specific layer.
 
+        Applies meta-knob modulation if enabled:
+            P_effective = P_raw × pressure_scale × κ_pressure_scale
+
         Args:
             layer_idx: Layer index
 
@@ -499,11 +514,20 @@ class ChronovisorMixtralController:
             return torch.zeros(self.config.num_experts)
 
         pressure = self.lenses[layer_idx].pressure * self.pressure_scale
+
+        # Apply meta-knob modulation
+        if self.meta_knob is not None:
+            factors = self.meta_knob.get_factors()
+            pressure = pressure * factors.pressure_scale
+
         return torch.from_numpy(pressure).float()
 
     def get_temperature_for_layer(self, layer_idx: int) -> torch.Tensor:
         """
         Get current temperature field for a specific layer.
+
+        Applies meta-knob modulation if enabled:
+            T_effective = T_raw × temperature_scale × κ_temp_scale
 
         Args:
             layer_idx: Layer index
@@ -515,7 +539,357 @@ class ChronovisorMixtralController:
             return torch.ones(self.config.num_experts)
 
         temperature = self.lenses[layer_idx].temperature_effective * self.temperature_scale
+
+        # Apply meta-knob modulation
+        if self.meta_knob is not None:
+            factors = self.meta_knob.get_factors()
+            temperature = temperature * factors.temp_scale
+
         return torch.from_numpy(temperature).float()
+
+    # =========================================================================
+    # Meta-Knob Interface
+    # =========================================================================
+
+    def set_knob(self, kappa: float, intent: str = "") -> KnobFactors:
+        """
+        Set the meta-knob value.
+
+        The knob κ ∈ [-1, +1] modulates:
+            κ > 0: More pressure, more exploration, higher temperature
+            κ < 0: Less pressure, more exploitation, lower temperature
+            κ = 0: Baseline behavior
+
+        Args:
+            kappa: Meta-knob value in [-1, +1]
+            intent: Optional intent description
+
+        Returns:
+            KnobFactors with the computed multiplicative factors
+        """
+        if self.meta_knob is None:
+            return KnobFactors(
+                kappa=0.0,
+                pressure_scale=1.0,
+                explore_bias=1.0,
+                alignment_lr_mul=1.0,
+                temp_scale=1.0,
+            )
+
+        return self.meta_knob.set_kappa(kappa, intent)
+
+    def apply_knob_decision(self, decision: KnobDecision) -> KnobFactors:
+        """
+        Apply a knob decision from an LLM controller.
+
+        Args:
+            decision: KnobDecision with κ and intent
+
+        Returns:
+            KnobFactors with the computed multiplicative factors
+        """
+        if self.meta_knob is None:
+            return KnobFactors(
+                kappa=0.0,
+                pressure_scale=1.0,
+                explore_bias=1.0,
+                alignment_lr_mul=1.0,
+                temp_scale=1.0,
+            )
+
+        return self.meta_knob.apply_decision(decision)
+
+    def get_knob_state(self, loss: Optional[float] = None) -> KnobState:
+        """
+        Get current system state for knob decision-making.
+
+        This provides a compact summary of the system state that can be
+        fed to an LLM controller to decide on κ.
+
+        Args:
+            loss: Optional current loss value
+
+        Returns:
+            KnobState for LLM consumption
+        """
+        # Update loss tracking
+        if loss is not None:
+            self.current_loss = loss
+            self.loss_history.append(loss)
+
+        # Compute loss trend
+        if len(self.loss_history) >= 2:
+            loss_trend = self.loss_history[-1] - self.loss_history[-2]
+        else:
+            loss_trend = 0.0
+
+        # Compute routing entropy (average across layers)
+        routing_entropy = 0.0
+        for layer_idx, usage in self.expert_usage.items():
+            total = usage.sum()
+            if total > 0:
+                p = usage / total
+                p = p[p > 0]  # Avoid log(0)
+                layer_entropy = -np.sum(p * np.log(p + 1e-10))
+                routing_entropy += layer_entropy
+        routing_entropy /= len(self.expert_usage) if self.expert_usage else 1
+
+        # Alignment entropy (using structural T variance as proxy)
+        structural_T_var = np.var(self.structural_T_global)
+        alignment_entropy = np.log(1 + structural_T_var * 10)  # Scaled
+
+        # Drift correlation (not directly available, use coherence as proxy)
+        drift_correlation = self.coherence_R
+
+        return KnobState(
+            loss=self.current_loss,
+            loss_trend=loss_trend,
+            routing_entropy=routing_entropy,
+            alignment_entropy=alignment_entropy,
+            drift_correlation=drift_correlation,
+            coherence_R=self.coherence_R,
+            population=self.config.num_experts * self.config.num_layers,
+            avg_pressure_magnitude=np.mean([
+                np.mean(np.abs(lens.pressure)) for lens in self.lenses.values()
+            ]) if self.lenses else 0.0,
+        )
+
+    def get_knob_factors(self) -> KnobFactors:
+        """
+        Get current meta-knob factors.
+
+        Returns:
+            Current KnobFactors or neutral factors if knob is disabled
+        """
+        if self.meta_knob is None:
+            return KnobFactors(
+                kappa=0.0,
+                pressure_scale=1.0,
+                explore_bias=1.0,
+                alignment_lr_mul=1.0,
+                temp_scale=1.0,
+            )
+
+        return self.meta_knob.get_factors()
+
+    def get_structural_temperature_diagnostics(self, layer_idx: Optional[int] = None) -> dict:
+        """
+        Get detailed structural temperature diagnostics for visualization.
+
+        Analyzes the geological landscape formed by structural temperatures:
+        - Variance indicates landscape differentiation
+        - Low T̄ regions = valleys (stable experts)
+        - High T̄ regions = ridges (unstable experts)
+
+        Args:
+            layer_idx: Specific layer to analyze, or None for global T̄
+
+        Returns:
+            Dictionary with structural temperature analysis.
+        """
+        if layer_idx is not None and layer_idx in self.lenses:
+            structural_T = self.lenses[layer_idx].structural_T
+            label = f"layer_{layer_idx}"
+        else:
+            structural_T = self.structural_T_global
+            label = "global"
+
+        n_experts = len(structural_T)
+
+        # Basic stats
+        variance = float(np.var(structural_T))
+        mean = float(np.mean(structural_T))
+        std = float(np.std(structural_T))
+
+        # Normalized entropy of structural temperature distribution
+        # Low entropy = specialized landscape (clear valleys/ridges)
+        # High entropy = flat landscape
+        normalized = structural_T / structural_T.sum()
+        entropy = float(-np.sum(normalized * np.log(normalized + 1e-10)))
+        max_entropy = np.log(n_experts)
+        normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # Identify valleys (low T, stable regions) and ridges (high T, unstable)
+        threshold_low = mean - 0.5 * std
+        threshold_high = mean + 0.5 * std
+
+        valleys = [i for i, t in enumerate(structural_T) if t < threshold_low]
+        ridges = [i for i, t in enumerate(structural_T) if t > threshold_high]
+
+        # Landscape is "formed" when variance exceeds threshold
+        landscape_formed = bool(variance > 0.01)
+
+        return {
+            "label": label,
+            "structural_T": structural_T.copy(),
+            "variance": variance,
+            "mean": mean,
+            "std": std,
+            "entropy": normalized_entropy,
+            "landscape_formed": landscape_formed,
+            "valleys": valleys,  # Experts that became stable (low T)
+            "ridges": ridges,  # Experts that became unstable (high T)
+            "evolution_steps": self.fast_clock,
+        }
+
+    def get_valley_health_diagnostics(self, layer_idx: Optional[int] = None) -> dict:
+        """
+        Monitor valley health to detect "bad valleys" (low T̄ + low reliability).
+
+        This diagnostic helps verify that the self-correction mechanism is working:
+        - Bad experts should have high T_fast (behavioral avoidance)
+        - Over time, their T̄ should rise (structural correction)
+        - Persistent bad valleys indicate the mechanism is failing
+
+        The design relies on reliability → T_fast → T̄ feedback, not asymmetric
+        erosion. This diagnostic lets us monitor if that assumption holds.
+
+        For Mixtral, we use expert usage as a proxy for reliability:
+        - Frequently used experts = reliable (low T desired)
+        - Rarely used experts = unreliable (high T expected)
+
+        Args:
+            layer_idx: Specific layer to analyze, or None for global analysis
+
+        Returns:
+            Dictionary with valley health analysis.
+        """
+        n_experts = self.config.num_experts
+
+        # Get structural temperature
+        if layer_idx is not None and layer_idx in self.lenses:
+            structural_T = self.lenses[layer_idx].structural_T
+            usage = self.expert_usage.get(layer_idx, np.zeros(n_experts))
+            label = f"layer_{layer_idx}"
+        else:
+            structural_T = self.structural_T_global
+            # Aggregate usage across all layers
+            usage = np.zeros(n_experts)
+            for u in self.expert_usage.values():
+                usage += u
+            label = "global"
+
+        # Identify valleys based on structural temperature
+        mean_T = float(np.mean(structural_T))
+        std_T = float(np.std(structural_T))
+        threshold_valley = mean_T - 0.5 * std_T
+
+        valleys = [i for i in range(n_experts) if structural_T[i] < threshold_valley]
+
+        # Compute reliability proxy from usage
+        # More usage = more reliable
+        total_usage = usage.sum()
+        if total_usage > 0:
+            reliabilities = usage / total_usage * n_experts  # Normalize so average = 1.0
+            reliabilities = np.clip(reliabilities, 0.0, 2.0) / 2.0  # Scale to [0, 1]
+        else:
+            reliabilities = np.ones(n_experts) * 0.5  # Neutral if no usage data
+
+        # Valley health = reliability (for valleys only)
+        # High reliability + valley = good (healthy valley)
+        # Low reliability + valley = bad (unhealthy valley, should self-correct)
+        valley_health = {}
+        healthy_valleys = []
+        unhealthy_valleys = []
+
+        reliability_threshold = 0.3  # Below this = unhealthy
+
+        for v in valleys:
+            health = float(reliabilities[v])
+            valley_health[v] = health
+            if health >= reliability_threshold:
+                healthy_valleys.append(v)
+            else:
+                unhealthy_valleys.append(v)
+
+        # Identify "at risk" experts: low usage but still low T̄
+        # These are experts trending toward bad valley if T_fast stays high
+        at_risk_experts = []
+        if layer_idx is not None and layer_idx in self.lenses:
+            fast_T = self.lenses[layer_idx].temperature_fast
+        else:
+            # Average fast T across layers
+            fast_T = np.zeros(n_experts)
+            for lens in self.lenses.values():
+                fast_T += lens.temperature_fast
+            fast_T /= len(self.lenses) if self.lenses else 1
+
+        for i in range(n_experts):
+            is_hot = fast_T[i] > mean_T + 0.5 * std_T
+            is_still_valley = structural_T[i] < threshold_valley
+            if is_hot and is_still_valley:
+                # High T_fast (behavioral avoidance) but still a valley
+                # This means structural correction is lagging
+                at_risk_experts.append(i)
+
+        # Mean valley health
+        if valley_health:
+            mean_health = sum(valley_health.values()) / len(valley_health)
+        else:
+            mean_health = 1.0  # No valleys = healthy
+
+        # Self-correction is working if:
+        # 1. No persistent unhealthy valleys (they should fill in)
+        # 2. At-risk experts list is small or empty
+        self_correction_working = (
+            len(unhealthy_valleys) == 0 or
+            len(at_risk_experts) < len(unhealthy_valleys)  # Correction in progress
+        )
+
+        return {
+            "label": label,
+            "valleys": valleys,
+            "valley_health": valley_health,
+            "healthy_valleys": healthy_valleys,
+            "unhealthy_valleys": unhealthy_valleys,
+            "at_risk_experts": at_risk_experts,
+            "mean_valley_health": mean_health,
+            "reliabilities": {i: float(r) for i, r in enumerate(reliabilities)},
+            "self_correction_working": self_correction_working,
+        }
+
+    def get_diagnostics(self) -> dict:
+        """
+        Get comprehensive diagnostic information about controller state.
+
+        Returns:
+            Dictionary with all diagnostic metrics.
+        """
+        # Basic state
+        diagnostics = {
+            "fast_clock": self.fast_clock,
+            "micro_clock": self.micro_clock,
+            "macro_clock": self.macro_clock,
+            "kuramoto_R": self.coherence_R,
+            "delta_R": self.delta_coherence,
+            "mean_phase_psi": self.mean_phase_psi,
+            "coherence_history_len": len(self.coherence_history),
+        }
+
+        # Per-layer lens states
+        diagnostics["lens_magnitudes"] = {
+            i: lens.magnitude for i, lens in self.lenses.items()
+        }
+
+        # Global structural temperature stats
+        diagnostics["structural_T_global_mean"] = float(np.mean(self.structural_T_global))
+        diagnostics["structural_T_global_std"] = float(np.std(self.structural_T_global))
+        diagnostics["structural_T_global_min"] = float(np.min(self.structural_T_global))
+        diagnostics["structural_T_global_max"] = float(np.max(self.structural_T_global))
+
+        # Structural temperature diagnostics
+        diagnostics["structural_T_diagnostics"] = self.get_structural_temperature_diagnostics()
+
+        # Valley health
+        diagnostics["valley_health"] = self.get_valley_health_diagnostics()
+
+        # Meta-knob state
+        if self.meta_knob is not None:
+            diagnostics["meta_knob"] = self.meta_knob.get_diagnostics()
+        else:
+            diagnostics["meta_knob"] = {"enabled": False}
+
+        return diagnostics
 
     def reset(self) -> None:
         """Reset all controller state."""
@@ -523,16 +897,33 @@ class ChronovisorMixtralController:
             lens.vector = np.zeros(lens.n_experts)
             lens.magnitude = 0.0
             lens.pressure = np.zeros(lens.n_experts)
+            lens.temperature_fast = np.ones(lens.n_experts) * lens.base_temperature
+            lens.structural_T = np.ones(lens.n_experts) * lens.base_temperature
+            lens.structural_T_hierarchical = np.ones(lens.n_experts) * lens.base_temperature
+            lens.temperature_effective = np.ones(lens.n_experts) * lens.base_temperature
+
+        # Reset global structural T
+        self.structural_T_global = np.ones(self.config.num_experts)
 
         self.fast_clock = 0
         self.micro_clock = 0
         self.macro_clock = 0
-        self.coherence = 0.0
+        self.coherence_R = 0.0
         self.delta_coherence = 0.0
         self.coherence_history = []
 
         for layer_idx in self.expert_usage:
             self.expert_usage[layer_idx] = np.zeros(self.config.num_experts)
+        for layer_idx in self.expert_phases:
+            self.expert_phases[layer_idx] = np.random.uniform(0, 2 * np.pi, self.config.num_experts)
+
+        # Reset meta-knob
+        if self.meta_knob is not None:
+            self.meta_knob.reset()
+
+        # Reset loss tracking
+        self.loss_history = []
+        self.current_loss = 0.0
 
 
 class ChronovisorMixtralModel(nn.Module):
@@ -774,9 +1165,59 @@ if __name__ == '__main__':
     print(f"✓ Δ R: {chrono_state.delta_coherence:.4f}")
     print(f"✓ Vocab size: {config.vocab_size}")
 
+    print("\n" + "=" * 60)
+    print("Testing Diagnostics and Meta-Knob")
+    print("=" * 60)
+
+    controller = model.controller
+
+    # Test structural temperature diagnostics
+    print("\nStructural Temperature Diagnostics (Global):")
+    st_diag = controller.get_structural_temperature_diagnostics()
+    print(f"  Variance: {st_diag['variance']:.6f}")
+    print(f"  Landscape formed: {st_diag['landscape_formed']}")
+    print(f"  Valleys: {st_diag['valleys']}")
+    print(f"  Ridges: {st_diag['ridges']}")
+
+    # Test valley health diagnostics
+    print("\nValley Health Diagnostics:")
+    vh_diag = controller.get_valley_health_diagnostics()
+    print(f"  Healthy valleys: {vh_diag['healthy_valleys']}")
+    print(f"  Unhealthy valleys: {vh_diag['unhealthy_valleys']}")
+    print(f"  Self-correction working: {vh_diag['self_correction_working']}")
+
+    # Test meta-knob
+    print("\nMeta-Knob Test:")
+    print(f"  Initial κ: {controller.get_knob_factors().kappa}")
+
+    # Set knob to explore mode
+    factors = controller.set_knob(0.5, intent="explore")
+    print(f"  After κ=0.5 (explore):")
+    print(f"    pressure_scale: {factors.pressure_scale:.3f}")
+    print(f"    temp_scale: {factors.temp_scale:.3f}")
+
+    # Set knob to exploit mode
+    factors = controller.set_knob(-0.5, intent="exploit")
+    print(f"  After κ=-0.5 (exploit):")
+    print(f"    pressure_scale: {factors.pressure_scale:.3f}")
+    print(f"    temp_scale: {factors.temp_scale:.3f}")
+
+    # Get knob state for LLM
+    knob_state = controller.get_knob_state(loss=0.5)
+    print(f"\nKnob State for LLM:")
+    print(knob_state.to_prompt())
+
+    # Full diagnostics
+    print("\nFull Diagnostics:")
+    diag = controller.get_diagnostics()
+    print(f"  Kuramoto R: {diag['kuramoto_R']:.4f}")
+    print(f"  Meta-knob κ: {diag['meta_knob'].get('kappa', 'N/A')}")
+
     print("\n✓ P×T Mixtral integration complete!")
     print("  - Pressure field (P): Biases routing toward/away from experts")
     print("  - Temperature field (T): Controls routing sharpness/diffuseness")
-    print("  - Structural T: Geological memory via EMA")
+    print("  - Structural T̄: Geological memory via EMA (global + local)")
     print("  - Kuramoto R: Patent-compliant coherence metric")
+    print("  - Valley health diagnostics: Monitors self-correction")
+    print("  - Meta-knob κ: LLM-controlled pressure/temperature modulation")
     print("  - Language modeling: Embeddings + LM head ready for training")
