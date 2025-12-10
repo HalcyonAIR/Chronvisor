@@ -135,8 +135,9 @@ class MixtralLens:
         # P×T fields
         self.pressure = np.zeros(n_experts)  # Pressure field (P)
         self.temperature_fast = np.ones(n_experts) * base_temperature  # Fast temperature
-        self.structural_T = np.ones(n_experts) * base_temperature  # Geological memory (T̄)
-        self.temperature_effective = np.ones(n_experts) * base_temperature  # T_eff = T_fast × T̄
+        self.structural_T = np.ones(n_experts) * base_temperature  # Local geological memory (T̄_local)
+        self.structural_T_hierarchical = np.ones(n_experts) * base_temperature  # T̄_global × T̄_local
+        self.temperature_effective = np.ones(n_experts) * base_temperature  # T_fast × T̄_hierarchical
 
     def update(self, drift: np.ndarray, coherence_gate: float = 1.0) -> None:
         """
@@ -241,25 +242,27 @@ class MixtralLens:
         # Update fast temperature
         self.temperature_fast = temperatures
 
-        # Update structural temperature (geological memory via EMA)
+        # Update local structural temperature (geological memory via EMA)
+        # This is T̄_local - layer-specific geological pattern
         self.structural_T = (
             (1.0 - self.eta_structural_T) * self.structural_T
             + self.eta_structural_T * self.temperature_fast
         )
 
-        # Effective temperature is element-wise product
-        self.temperature_effective = self.temperature_fast * self.structural_T
+        # Note: hierarchical structural T (T̄_global × T̄_local) is computed
+        # by the controller, which has access to T̄_global
 
         return self.temperature_effective
 
     def get_state(self) -> dict:
-        """Get current lens state."""
+        """Get current lens state with hierarchical structural temperature."""
         return {
             'vector': self.vector.copy(),
             'magnitude': self.magnitude,
             'pressure': self.pressure.copy(),
             'temperature_fast': self.temperature_fast.copy(),
-            'structural_T': self.structural_T.copy(),
+            'structural_T_local': self.structural_T.copy(),
+            'structural_T_hierarchical': self.structural_T_hierarchical.copy(),
             'temperature_effective': self.temperature_effective.copy(),
         }
 
@@ -271,6 +274,7 @@ class ChronovisorMixtralController:
     Manages:
         - Multi-scale clocks (fast, micro, macro)
         - Per-layer lenses with P×T fields
+        - Hierarchical structural temperature (global + local)
         - Kuramoto coherence computation (R)
         - Pressure and temperature updates
     """
@@ -282,9 +286,11 @@ class ChronovisorMixtralController:
         macro_period: int = 20,
         pressure_scale: float = 0.1,
         temperature_scale: float = 1.0,
+        eta_structural_T_global: float = 0.005,  # Even slower than local
+        eta_structural_T_local: float = 0.01,
     ):
         """
-        Initialize controller.
+        Initialize controller with hierarchical structural temperature.
 
         Args:
             config: Mixtral model configuration
@@ -292,18 +298,29 @@ class ChronovisorMixtralController:
             macro_period: Ticks between macro-scale updates
             pressure_scale: How strongly to apply pressure to routing
             temperature_scale: Global temperature scale factor
+            eta_structural_T_global: EMA rate for global structural T (very slow)
+            eta_structural_T_local: EMA rate for local structural T (slow)
         """
         self.config = config
         self.micro_period = micro_period
         self.macro_period = macro_period
         self.pressure_scale = pressure_scale
         self.temperature_scale = temperature_scale
+        self.eta_structural_T_global = eta_structural_T_global
+        self.eta_structural_T_local = eta_structural_T_local
 
         # Create lenses for each layer
         self.lenses: Dict[int, MixtralLens] = {
-            i: MixtralLens(n_experts=config.num_experts)
+            i: MixtralLens(
+                n_experts=config.num_experts,
+                eta_structural_T=eta_structural_T_local,
+            )
             for i in range(config.num_layers)
         }
+
+        # Global structural temperature (shared across all layers)
+        # T̄_global captures system-wide geological patterns
+        self.structural_T_global = np.ones(config.num_experts)
 
         # Clock state
         self.fast_clock = 0
@@ -380,9 +397,28 @@ class ChronovisorMixtralController:
 
         # On micro boundaries, update lens pressure and temperature
         if self.fast_clock % self.micro_period == 0:
+            # Update global structural temperature first
+            # Average fast temperature across all layers
+            avg_fast_T = np.zeros(self.config.num_experts)
+            for layer_idx, lens in self.lenses.items():
+                avg_fast_T += lens.temperature_fast
+            avg_fast_T /= len(self.lenses)
+
+            # Update global structural T (very slow EMA)
+            self.structural_T_global = (
+                (1.0 - self.eta_structural_T_global) * self.structural_T_global
+                + self.eta_structural_T_global * avg_fast_T
+            )
+
+            # Update per-layer pressure and temperature
             for layer_idx, lens in self.lenses.items():
                 lens.compute_pressure(self.expert_usage[layer_idx])
                 lens.compute_temperature(coherence_R=self.coherence_R)
+
+                # Apply hierarchical structural temperature
+                # T̄_eff = T̄_global × T̄_local
+                lens.structural_T_hierarchical = self.structural_T_global * lens.structural_T
+                lens.temperature_effective = lens.temperature_fast * lens.structural_T_hierarchical
 
         # On macro boundaries, update lens positions
         if self.fast_clock % self.macro_period == 0:
