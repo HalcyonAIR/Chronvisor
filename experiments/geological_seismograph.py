@@ -159,6 +159,7 @@ class GeologicalSeismograph:
         self,
         model: ChronovisorMixtralForCausalLM,
         output_dir: str = "seismograph_output",
+        fast_geology: bool = False,
     ):
         """
         Initialize seismograph.
@@ -166,6 +167,7 @@ class GeologicalSeismograph:
         Args:
             model: ChronoMoE model with frozen weights
             output_dir: Where to save plots and data
+            fast_geology: If True, speed up structural T evolution 10x for visualization
         """
         self.model = model
         self.controller = model.model.controller
@@ -174,6 +176,14 @@ class GeologicalSeismograph:
 
         self.readings: List[SeismographReading] = []
         self.step = 0
+        self.fast_geology = fast_geology
+
+        # Apply fast geology if requested
+        if fast_geology:
+            self.controller.eta_structural_T_global = 0.05  # 10x faster (was 0.005)
+            # Update local η for all lenses
+            for lens in self.controller.lenses.values():
+                lens.eta_structural_T = 0.1  # 10x faster (was 0.01)
 
         # Freeze all weights
         for param in self.model.parameters():
@@ -182,6 +192,14 @@ class GeologicalSeismograph:
         print("🌋 Geological Seismograph initialized")
         print(f"   Model: {model.config.num_layers} layers, {model.config.num_experts} experts/layer")
         print(f"   Weights frozen: {sum(1 for p in model.parameters() if not p.requires_grad)} params")
+        if fast_geology:
+            print("   " + "=" * 60)
+            print("   ⚠️  FAST GEOLOGY MODE (VISUALIZATION ONLY)")
+            print("   η_global=0.05, η_local=0.1 (10x production speed)")
+            print("   For debugging valley formation - NOT realistic timescales")
+            print("   " + "=" * 60)
+        else:
+            print(f"   🐌 Realistic geology: η_global=0.005, η_local=0.01")
         print(f"   Output: {self.output_dir}")
 
     def run_sequence(
@@ -516,17 +534,18 @@ def run_experiment():
     print("\nInitializing model...")
     model = ChronovisorMixtralForCausalLM(config)
 
-    # Create seismograph
+    # Create seismograph with fast geology for demonstration
     seismograph = GeologicalSeismograph(
         model=model,
         output_dir="seismograph_output",
+        fast_geology=True,  # 10x faster for visualization
     )
 
-    # Run each stressor sequence
+    # Run each stressor sequence with more ticks to see valley formation
     for sequence in STRESSOR_SEQUENCES:
         seismograph.run_sequence(
             sequence=sequence,
-            num_ticks_per_prompt=20,
+            num_ticks_per_prompt=50,  # Increased from 20 to see landscape form
             set_kappa=0.0,  # Baseline behavior
         )
 
