@@ -425,7 +425,32 @@ class ChronovisorMixtralController:
             # Update per-layer pressure and temperature
             for layer_idx, lens in self.lenses.items():
                 lens.compute_pressure(self.expert_usage[layer_idx])
-                lens.compute_temperature(coherence_R=self.coherence_R)
+
+                # Compute per-expert drift from usage imbalance
+                usage = self.expert_usage[layer_idx]
+                total_usage = usage.sum()
+                if total_usage > 0:
+                    usage_dist = usage / total_usage
+                    ideal_dist = 1.0 / self.config.num_experts
+                    # Drift = deviation from uniform (same as pressure but unsigned)
+                    expert_drifts = np.abs(usage_dist - ideal_dist)
+                else:
+                    expert_drifts = np.zeros(self.config.num_experts)
+
+                # Compute per-expert reliability from routing weights consistency
+                # Higher weight = more reliable (router trusts this expert)
+                # For now, use normalized usage as proxy for reliability
+                if total_usage > 0:
+                    expert_reliabilities = usage / usage.max()  # Normalize to [0, 1]
+                else:
+                    expert_reliabilities = np.ones(self.config.num_experts)
+
+                # NOW pass per-expert signals to temperature computation!
+                lens.compute_temperature(
+                    coherence_R=self.coherence_R,
+                    expert_drifts=expert_drifts,
+                    expert_reliabilities=expert_reliabilities,
+                )
 
                 # Apply hierarchical structural temperature
                 # T̄_eff = T̄_global × T̄_local
