@@ -1,0 +1,20 @@
+Sweet Spot Validation on Long Conversations
+======================================================================
+
+Testing top 3 configs from refined sweep on conversational flow
+
+Best Combined (η=0.010, P=1.0):
+  Pareto-better: 2/3 (67%)
+  Δ Loss: -1.0% ± 0.5%
+  Δ Sep:  +4.4% ± 5.1%
+
+Best Loss (η=0.015, P=0.5):
+  Pareto-better: 3/3 (100%)
+  Δ Loss: -0.4% ± 0.3%
+  Δ Sep:  +6.9% ± 2.0%
+
+Best Separation (η=0.010, P=0.7):
+  Pareto-better: 2/3 (67%)
+  Δ Loss: -0.5% ± 1.4%
+  Δ Sep:  +1.6% ± 5.2%
+

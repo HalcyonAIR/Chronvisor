@@ -87,6 +87,12 @@ class ChronovisorMixtralState:
     delta_coherence: float = 0.0
     coherence_history: List[float] = field(default_factory=list)
 
+    # Geological temperature tracking
+    T_bar: Optional[np.ndarray] = None  # Global geological temperature (T̄_global)
+    T_bar_local: Dict[int, np.ndarray] = field(default_factory=dict)  # Per-layer T̄_local
+    T_bar_hierarchical: Dict[int, np.ndarray] = field(default_factory=dict)  # Per-layer T̄_eff
+    T_effective: Dict[int, np.ndarray] = field(default_factory=dict)  # Per-layer T_final
+
     # Controller clock state
     fast_clock: int = 0
     micro_clock: int = 0
@@ -476,6 +482,11 @@ class ChronovisorMixtralController:
             coherence=self.coherence_R,  # Kuramoto R
             delta_coherence=self.delta_coherence,
             coherence_history=self.coherence_history.copy(),
+            # Geological temperature tracking
+            T_bar=self.structural_T_global.copy(),  # Global T̄
+            T_bar_local={i: lens.structural_T.copy() for i, lens in self.lenses.items()},
+            T_bar_hierarchical={i: lens.structural_T_hierarchical.copy() for i, lens in self.lenses.items()},
+            T_effective={i: lens.temperature_effective.copy() for i, lens in self.lenses.items()},
             fast_clock=self.fast_clock,
             micro_clock=self.micro_clock,
             macro_clock=self.macro_clock,

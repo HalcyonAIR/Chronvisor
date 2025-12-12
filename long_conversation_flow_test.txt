@@ -1,0 +1,10 @@
+Long Conversation Geological Flow Test
+======================================================================
+
+Configuration: η=0.010, P=0.5
+Conversations: 10 full arcs (500-1000 tokens each)
+
+Pareto-better: 2/3 (67%)
+Δ Loss: -0.9% ± 0.9%
+Δ Sep:  +2.9% ± 4.2%
+T̄ var:  0.001009
