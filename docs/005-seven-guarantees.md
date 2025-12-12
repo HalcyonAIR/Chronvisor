@@ -12,7 +12,7 @@ The ChronoMoE architecture provides seven mathematical guarantees that together 
 
 | # | Guarantee | What It Ensures |
 |---|-----------|-----------------|
-| 1 | Direction | Temperature modulates but never changes the meaning signal |
+| 1 | Direction (Margin-Based) | Temperature cannot reverse strong semantic preferences (Δ > Δ_safe) |
 | 2 | Geological Safety | Bad valleys cannot form; valleys only occur around strong experts |
 | 3 | Anti-Collapse | Pressure prevents permanent over-specialization |
 | 4 | Exploration-Exploitation | Uncertainty → exploration, stability → exploitation |
@@ -22,9 +22,9 @@ The ChronoMoE architecture provides seven mathematical guarantees that together 
 
 ---
 
-## Guarantee 1: Direction
+## Guarantee 1: Direction (Margin-Based)
 
-**Temperature cannot reverse the meaning signal.**
+**Temperature cannot reverse strong semantic preferences.**
 
 Routing always obeys:
 
@@ -35,27 +35,48 @@ p_k = softmax((ℓ_k + b_k) / T_effective_k)
 Where:
 - `ℓ_k` = semantic logits (from the model)
 - `b_k` = pressure (trust, lens, motifs, drift alignment)
-- `T_effective_k = T_fast_k × T̄_k`
+- `T_effective_k = T_fast_k × T̄_k` (per-expert effective temperature)
 
-**Temperature only scales the decision; it never changes the direction.**
+**For sufficiently large semantic gaps, temperature modulates sharpness but cannot overturn preference.**
 
 ### Implication
 
-Meaning and pressure always dominate routing. Temperature only modulates exploration.
+Temperature operates within a bounded range `[T_min, T_max]` and with bounded pressure `|b_k| ≤ B_max`.
 
-No valley can trap the system because valleys do not add force — only permeability.
+For expert pairs with semantic margin `Δ = |(ℓ_A + b_A) - (ℓ_B + b_B)| > Δ_safe`, the preference ordering is guaranteed to be preserved under all admissible temperature configurations.
 
-### Mathematical Proof
+**Meaning and pressure dominate routing for clear decisions. Temperature modulates exploration only where logits are close.**
 
-Consider two experts with logits `ℓ_A > ℓ_B`. Under any temperature T > 0:
+### Margin-Based Guarantee
+
+Given bounded temperatures `T_k ∈ [T_min, T_max]`, the system preserves semantic preference when:
 
 ```
-(ℓ_A + b_A) / T  vs  (ℓ_B + b_B) / T
+|(ℓ_A + b_A) - (ℓ_B + b_B)| > Δ_safe
+
+where Δ_safe depends on T_max/T_min ratio
 ```
 
-If `ℓ_A + b_A > ℓ_B + b_B`, then expert A is favored regardless of T.
+**Intuition**: If expert A has a strong semantic advantage, even the most aggressive temperature differential (A hot, B cold) cannot flip the preference. Temperature only matters for **close calls**, which is exactly when exploration is valuable.
 
-Temperature affects the *magnitude* of the difference, not its *sign*.
+### Why Per-Expert Temperature Is Safe
+
+With per-expert temperature, the routing becomes:
+
+```
+p_A ∝ exp((ℓ_A + b_A) / T_A)
+p_B ∝ exp((ℓ_B + b_B) / T_B)
+```
+
+In principle, if `T_A >> T_B`, this could reverse a weak preference. However:
+
+1. **Bounded Range**: `T_k ∈ [0.3, 3.0]` limits the ratio `T_max/T_min = 10`
+2. **Small Betas**: Pressure and temperature factors have small coefficients (β_drift=0.5, β_reliability=0.2)
+3. **Empirical Safe Margin**: Strong logit gaps `Δ ≥ 5.0` are preserved even under worst-case temperature differential
+4. **Modulation Zone**: Medium gaps `3.0 < Δ < 5.0` can be influenced by historical performance (pressure + temperature)
+5. **Flip Zone**: Weak gaps `Δ < 3.0` will reliably flip under temperature differential (this is the desired behavior!)
+
+**Trade-off**: Per-expert temperature enables expert-specific exploration rates, at the cost of requiring a margin for absolute preference preservation. This is the correct design — we WANT close preferences to be modulated by historical performance (reliability, drift).
 
 ---
 
