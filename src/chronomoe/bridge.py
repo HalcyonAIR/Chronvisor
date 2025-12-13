@@ -408,10 +408,10 @@ class ChronoMoEBridge:
         for i in range(n):
             expert = self.controller.experts[i]
 
-            # Trust: from reliability
+            # Trust: from reliability (symmetrized via logit so it can push up or down)
             w_k = _sigmoid(self.beta_s * expert.s)
-            # Log transform for additive bias (avoid log(0))
-            trust[i] = math.log(max(w_k, 1e-6))
+            w_k = min(max(w_k, 1e-6), 1.0 - 1e-6)
+            trust[i] = math.log(w_k) - math.log(1.0 - w_k)
 
             # Pressure: lens gain deviation from 1.0
             pressure[i] = expert.g_lens_ema - 1.0

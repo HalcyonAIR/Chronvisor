@@ -256,10 +256,13 @@ class MixtralLens:
             + self.eta_structural_T * self.temperature_fast
         )
 
+        # Update the local effective temperature so callers can use it immediately
+        self.temperature_effective = self.temperature_fast * self.structural_T
+
         # Note: hierarchical structural T (T̄_global × T̄_local) is computed
         # by the controller, which has access to T̄_global
 
-        return self.temperature_effective
+        return self.temperature_effective.copy()
 
     def get_state(self) -> dict:
         """Get current lens state with hierarchical structural temperature."""
@@ -296,6 +299,7 @@ class ChronovisorMixtralController:
         eta_structural_T_global: float = 0.005,  # Even slower than local
         eta_structural_T_local: float = 0.01,
         enable_meta_knob: bool = True,
+        usage_decay: float = 0.95,
     ):
         """
         Initialize controller with hierarchical structural temperature.
@@ -318,6 +322,7 @@ class ChronovisorMixtralController:
         self.eta_structural_T_global = eta_structural_T_global
         self.eta_structural_T_local = eta_structural_T_local
         self.enable_meta_knob = enable_meta_knob
+        self.usage_decay = usage_decay
 
         # Create lenses for each layer
         self.lenses: Dict[int, MixtralLens] = {
@@ -384,9 +389,14 @@ class ChronovisorMixtralController:
         # Update expert usage from routing stats
         for layer_idx, stats in routing_stats.items():
             selected = stats['selected_experts'].detach().cpu().numpy()
+            current_usage = np.zeros(self.config.num_experts)
             for expert_id in range(self.config.num_experts):
-                count = np.sum(selected == expert_id)
-                self.expert_usage[layer_idx][expert_id] += count
+                current_usage[expert_id] = np.sum(selected == expert_id)
+
+            self.expert_usage[layer_idx] = (
+                self.usage_decay * self.expert_usage[layer_idx]
+                + (1.0 - self.usage_decay) * current_usage
+            )
 
         # Update expert phases (simple phase evolution model)
         for layer_idx in routing_stats.keys():
@@ -477,7 +487,7 @@ class ChronovisorMixtralController:
             lens_magnitude={i: lens.magnitude for i, lens in self.lenses.items()},
             expert_gains={},  # TODO: compute from routing stats
             expert_stability={},  # TODO: compute from routing variance
-            expert_usage=self.expert_usage.copy(),
+            expert_usage={i: usage.copy() for i, usage in self.expert_usage.items()},
             routing_entropy={},  # TODO: compute from routing stats
             coherence=self.coherence_R,  # Kuramoto R
             delta_coherence=self.delta_coherence,
@@ -1005,8 +1015,9 @@ class ChronovisorMixtralModel(nn.Module):
         # Apply P×T fields from controller to each layer
         for layer_idx, layer in enumerate(self.layers):
             if update_chronovisor and self.config.enable_chronovisor:
-                pressure = self.controller.get_pressure_for_layer(layer_idx)
-                temperature = self.controller.get_temperature_for_layer(layer_idx)
+                device = hidden_states.device
+                pressure = self.controller.get_pressure_for_layer(layer_idx).to(device, non_blocking=True)
+                temperature = self.controller.get_temperature_for_layer(layer_idx).to(device, non_blocking=True)
                 layer.moe.pressure_bias = pressure
                 layer.moe.temperature_field = temperature
 
