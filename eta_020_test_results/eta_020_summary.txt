@@ -1,0 +1,13 @@
+η=0.02 Retuning Test Results
+======================================================================
+
+Configuration: η=0.02, P=0.5
+Seeds: [42, 12345]
+
+Results:
+  Robustness: 0/2 (0%)
+  Δ Loss: +3.82% ± 0.43%
+  Δ Sep: -12.13% ± 3.97%
+  T̄ variance: 0.003355 ± 0.000839
+
+Status: NO RECOVERY

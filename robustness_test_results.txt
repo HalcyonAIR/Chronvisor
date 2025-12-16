@@ -1,0 +1,13 @@
+Part 1: Robustness Test Results
+======================================================================
+
+Seed: 12345
+Config: η=0.006, P=1.1
+
+Frozen: loss=2.643815, sep=0.032401
+Live:   loss=3.109403, sep=0.030569
+
+Δ Loss: +17.6%
+Δ Sep:  -5.7%
+
+⚠️  Results vary from original sweep

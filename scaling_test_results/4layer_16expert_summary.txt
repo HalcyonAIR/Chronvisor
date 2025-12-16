@@ -1,0 +1,14 @@
+Architectural Scaling Test: 4-Layer, 16-Expert Mixtral
+======================================================================
+
+Configuration: η=0.015, P=0.5
+Architecture: 4 layers, 16 experts (vs baseline 2 layers, 8 experts)
+Seeds: [42, 12345, 67890]
+
+Results:
+  Robustness: 3/3 (100%)
+  Δ Loss: -15.28% ± 1.43%
+  Δ Sep: +inf% ± nan%
+  T̄ variance: 0.000047 ± 0.000003
+
+Transfer Status: PARTIAL

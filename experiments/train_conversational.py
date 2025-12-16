@@ -34,7 +34,7 @@ import json
 from chronomoe.chronovisor_mixtral_bridge import ChronovisorMixtralForCausalLM
 from chronomoe.mixtral_core import MixtralConfig
 from chronomoe.training import ChronoMoETrainer, TrainingConfig, ChronoMoELoss
-from experiments.synthetic_dataset import ThreeDomainDataset, ALL_DOMAINS
+from experiments.conversational_dataset import ConversationalDataset, ALL_CONVERSATIONAL_DOMAINS as ALL_DOMAINS
 
 
 class ThreeDomainDatasetPyTorch(Dataset):
@@ -187,6 +187,12 @@ class ThreeDomainTrainer:
         self._plot_expert_specialization()
         self._save_results()
 
+        # Save model checkpoint
+        print("\n💾 Saving model checkpoint...")
+        checkpoint_path = self.output_dir / "model_final.pt"
+        torch.save(self.model.state_dict(), checkpoint_path)
+        print(f"   Model saved: {checkpoint_path}")
+
         print("\n" + "=" * 70)
         print("TRAINING COMPLETE")
         print("=" * 70)
@@ -338,17 +344,17 @@ def run_experiment(fast_geology: bool = True, num_steps: int = 2000):
     print("=" * 70)
 
     # Generate dataset
-    print("\n1. Generating 3-domain synthetic dataset...")
-    dataset_gen = ThreeDomainDataset(seq_length=32, vocab_size=1000)
-    dataset_gen.print_examples(num_examples=2)
+    print("\n1. Generating conversational dataset with phase shifts...")
+    dataset_gen = ConversationalDataset(seq_length=128, vocab_size=1000)
+    dataset_gen.print_examples(num_examples=1)
 
     full_dataset = dataset_gen.generate_dataset(
-        num_sequences=1000,
+        num_sequences=10000,
         balanced=True
     )
 
     # Split train/val
-    num_val = 100
+    num_val = 1000  # 10% validation
     train_sequences = full_dataset["sequences"][num_val:]
     val_sequences = full_dataset["sequences"][:num_val]
 
@@ -356,8 +362,8 @@ def run_experiment(fast_geology: bool = True, num_steps: int = 2000):
     train_dataset = ThreeDomainDatasetPyTorch(train_sequences, vocab_size=1000)
     val_dataset = ThreeDomainDatasetPyTorch(val_sequences, vocab_size=1000)
 
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)  # Reduced for longer sequences
+    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False)
 
     print(f"\n2. Creating toy Mixtral model...")
     config = MixtralConfig(
@@ -379,7 +385,7 @@ def run_experiment(fast_geology: bool = True, num_steps: int = 2000):
     train_config = TrainingConfig(
         learning_rate=1e-4,
         max_steps=num_steps,
-        batch_size=8,
+        batch_size=4,  # Reduced for longer sequences (128 tokens)
         lambda_balance=0.01,
         lambda_coherence=0.001,
         lambda_valley=0.0001,
@@ -395,13 +401,13 @@ def run_experiment(fast_geology: bool = True, num_steps: int = 2000):
         train_loader=train_loader,
         val_loader=val_loader,
         config=train_config,
-        output_dir="three_domain_results",
+        output_dir="conversational_results",
     )
 
     trainer.train(num_steps=num_steps)
 
     print("\n✅ Experiment complete!")
-    print("   Check three_domain_results/ for plots and results")
+    print("   Check conversational_results/ for plots and results")
 
 
 if __name__ == "__main__":

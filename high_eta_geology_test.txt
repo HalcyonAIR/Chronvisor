@@ -1,0 +1,12 @@
+High-Speed Geological Test Results
+======================================================================
+
+Configuration: η_local=0.1, η_global=0.01, 1000 steps
+
+T̄ Variance: 0.000000 → 0.001898 (Δ = +0.001898)
+T̄ Range:    0.000000 → 0.112995 (Δ = +0.112995)
+T̄ Mean:     1.000000 → 1.685540 (Δ = +0.685540)
+
+Final Loss:  0.087530
+
+✅ Strong geological activity confirmed

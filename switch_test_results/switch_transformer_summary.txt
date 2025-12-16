@@ -1,0 +1,14 @@
+Switch Transformer Test: Top-1 Routing with P×T Coupling
+======================================================================
+
+Configuration: η=0.015, P=0.5
+Routing: top-1 (vs Mixtral top-2)
+Seeds: [42, 12345, 67890]
+
+Results:
+  Robustness: 0/3 (0%)
+  Δ Loss: -35.50% ± 12.84%
+  Δ Sep: +nan% ± nan%
+  T̄ variance: 0.000000 ± 0.000000
+
+Generalization Status: FAILED

@@ -209,3 +209,5 @@ __marimo__/
 # ChronoMoE Experiment Outputs
 seismograph_output/
 checkpoints/
+proto_role_results/model_trained.pt
+*.pt

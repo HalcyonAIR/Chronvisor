@@ -1,0 +1,12 @@
+Continuity Check: Stable Basin Post-EMA Validation
+======================================================================
+
+Configuration: η=0.015, P=0.5
+Seeds: [42, 12345]
+
+Robustness: 0/2 (0%)
+Δ Loss: 4.44% ± 1.88%
+Δ Sep: -15.38% ± 6.03%
+T̄ variance: 0.002130 ± 0.000482
+
+Status: REVIEW NEEDED
