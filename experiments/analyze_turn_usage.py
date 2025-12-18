@@ -31,7 +31,17 @@ from collections import defaultdict
 
 from chronomoe.chronovisor_mixtral_bridge import ChronovisorMixtralForCausalLM
 from chronomoe.mixtral_core import MixtralConfig
-from experiments.conversational_dataset import ConversationalDataset, ALL_CONVERSATIONAL_DOMAINS as ALL_DOMAINS
+
+# Try relative import first, fall back to absolute
+try:
+    from conversational_dataset import ConversationalDataset, ALL_CONVERSATIONAL_DOMAINS as ALL_DOMAINS
+except ImportError:
+    try:
+        from experiments.conversational_dataset import ConversationalDataset, ALL_CONVERSATIONAL_DOMAINS as ALL_DOMAINS
+    except ImportError:
+        # If neither works, these are only used in __main__, not in TurnUsageAnalyzer
+        ConversationalDataset = None
+        ALL_DOMAINS = None
 
 
 class ThreeDomainDatasetPyTorch(Dataset):

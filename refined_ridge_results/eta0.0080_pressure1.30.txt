@@ -1,0 +1,11 @@
+Refined Ridge Sweep - Single Run
+======================================================================
+
+Configuration:
+  η_local:        0.0080
+  pressure_scale: 1.30
+
+Final Metrics:
+  Loss:           2.822598
+  Turn separation: 0.043509
+  Experts used:   8/8

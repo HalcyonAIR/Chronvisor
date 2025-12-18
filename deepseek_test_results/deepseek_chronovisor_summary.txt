@@ -1,0 +1,15 @@
+DeepSeek-MoE Test: Shared+Routed Experts with P×T Coupling
+======================================================================
+
+Configuration: η=0.015, P=0.5
+Architecture: 2 shared + 16 routed experts
+Routing: top-4 (routed only)
+Seeds: [42, 12345, 67890]
+
+Results:
+  Robustness: 2/3 (67%)
+  Δ Loss: -1.99% ± 1.81%
+  Δ Sep: +inf% ± nan%
+  T̄ variance: 0.000019 ± 0.000000
+
+Generalization Status: PARTIAL
