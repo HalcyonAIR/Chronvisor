@@ -1,0 +1,93 @@
+Axis Rotation Analysis Results
+======================================================================
+
+Regime Pairs:
+----------------------------------------------------------------------
+Mixtral+Chronovisor vs DeepSeek+Chronovisor
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Mixtral+Chronovisor vs DeepSeek Baseline
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Mixtral+Chronovisor vs Noise σ=0.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Mixtral+Chronovisor vs Noise σ=0.1
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Mixtral+Chronovisor vs Noise σ=0.5
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Mixtral+Chronovisor vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek+Chronovisor vs DeepSeek Baseline
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek+Chronovisor vs Noise σ=0.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek+Chronovisor vs Noise σ=0.1
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek+Chronovisor vs Noise σ=0.5
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek+Chronovisor vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek Baseline vs Noise σ=0.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek Baseline vs Noise σ=0.1
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek Baseline vs Noise σ=0.5
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+DeepSeek Baseline vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.0 vs Noise σ=0.1
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.0 vs Noise σ=0.5
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.0 vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.1 vs Noise σ=0.5
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.1 vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+Noise σ=0.5 vs Noise σ=1.0
+  PC1 angle: 0.00°
+  PC2 angle: 0.00°
+
+
+Summary Statistics:
+  PC1 alignment: 0.00° ± 0.00°
+  PC2 alignment: 0.00° ± 0.00°
