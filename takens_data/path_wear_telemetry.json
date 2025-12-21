@@ -1,0 +1,247 @@
+[
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 0,
+    "pause_reason": "baseline_B",
+    "pc1": 0.13572849333286285,
+    "pc2": 4.066478252410889,
+    "d_pc1": 0.0,
+    "d_pc2": 0.0,
+    "routing_entropy": 4.066478252410889,
+    "expert_switch_rate": 0.0,
+    "stillness_flags": {
+      "fast": true,
+      "medium": false,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 1,
+    "pause_reason": "wear_25",
+    "pc1": 0.13711309432983398,
+    "pc2": 4.049307823181152,
+    "d_pc1": 0.0013846009969711304,
+    "d_pc2": -0.017170429229736328,
+    "routing_entropy": 4.049307823181152,
+    "expert_switch_rate": 0.40350877192982454,
+    "stillness_flags": {
+      "fast": true,
+      "medium": false,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 2,
+    "pause_reason": "wear_50",
+    "pc1": 0.13711309432983398,
+    "pc2": 4.049307823181152,
+    "d_pc1": 0.0,
+    "d_pc2": 0.0,
+    "routing_entropy": 4.049307823181152,
+    "expert_switch_rate": 0.0,
+    "stillness_flags": {
+      "fast": true,
+      "medium": true,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 3,
+    "pause_reason": "wear_75",
+    "pc1": 0.13711309432983398,
+    "pc2": 4.049307823181152,
+    "d_pc1": 0.0,
+    "d_pc2": 0.0,
+    "routing_entropy": 4.049307823181152,
+    "expert_switch_rate": 0.0,
+    "stillness_flags": {
+      "fast": true,
+      "medium": true,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 4,
+    "pause_reason": "wear_100",
+    "pc1": 0.13711309432983398,
+    "pc2": 4.049307823181152,
+    "d_pc1": 0.0,
+    "d_pc2": 0.0,
+    "routing_entropy": 4.049307823181152,
+    "expert_switch_rate": 0.0,
+    "stillness_flags": {
+      "fast": true,
+      "medium": true,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 5,
+    "pause_reason": "B_after_wear",
+    "pc1": 0.13572849333286285,
+    "pc2": 4.066478252410889,
+    "d_pc1": -0.0013846009969711304,
+    "d_pc2": 0.017170429229736328,
+    "routing_entropy": 4.066478252410889,
+    "expert_switch_rate": 0.40350877192982454,
+    "stillness_flags": {
+      "fast": true,
+      "medium": true,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  },
+  {
+    "session_id": "path_wear_chronomoe",
+    "pause_index": 6,
+    "pause_reason": "B_after_reset",
+    "pc1": 0.13572849333286285,
+    "pc2": 4.066478252410889,
+    "d_pc1": 0.0,
+    "d_pc2": 0.0,
+    "routing_entropy": 4.066478252410889,
+    "expert_switch_rate": 0.0,
+    "stillness_flags": {
+      "fast": true,
+      "medium": true,
+      "slow": false
+    },
+    "gloss": {
+      "pc1": "Momentum / continuation strength (higher = stronger push to continue current trajectory)",
+      "pc2": "Exploration margin (higher = more viable alternative routes under consideration)",
+      "d_pc1": "Change in momentum since last pause (near zero = momentum exhausted)",
+      "d_pc2": "Change in exploration (near zero = alternatives exhausted)",
+      "routing_entropy": "Dispersion of expert votes (lower = coalition consensus)",
+      "expert_switch_rate": "How often expert coalition changes (lower = stabilized routing)",
+      "stillness_flags": {
+        "fast": "Token-scale motion has flattened",
+        "medium": "Arc-scale progress has stalled",
+        "slow": "Long-horizon regime frozen (identity-level stillness)"
+      },
+      "pause_reason": {
+        "candidate_stillness": "System detected convergence (pause for review)",
+        "candidate_stillness_all": "All timescales show stillness (strong signal)",
+        "max_steps": "Hard limit reached (forced pause)",
+        "user_interrupt": "Human-initiated pause"
+      }
+    }
+  }
+]

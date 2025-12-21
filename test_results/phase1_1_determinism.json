@@ -1,0 +1,60 @@
+{
+  "test": "phase1_1_determinism",
+  "status": "PASS",
+  "runs": [
+    [
+      {
+        "run_id": 0,
+        "seed": 42,
+        "chunk_index": 0,
+        "pause_occurred": true,
+        "pause_reason": "multistep_chunk_complete",
+        "net_pressure": 0.3388,
+        "fast_pressure": 0.013,
+        "mid_pressure": 0.64,
+        "slow_pressure": 0.1081,
+        "conditions_met": {
+          "fast_instability": false,
+          "negative_pressure": false,
+          "multistep_boundary": true
+        }
+      }
+    ],
+    [
+      {
+        "run_id": 1,
+        "seed": 42,
+        "chunk_index": 0,
+        "pause_occurred": true,
+        "pause_reason": "multistep_chunk_complete",
+        "net_pressure": 0.3387,
+        "fast_pressure": 0.0128,
+        "mid_pressure": 0.6399,
+        "slow_pressure": 0.1081,
+        "conditions_met": {
+          "fast_instability": false,
+          "negative_pressure": false,
+          "multistep_boundary": true
+        }
+      }
+    ],
+    [
+      {
+        "run_id": 2,
+        "seed": 42,
+        "chunk_index": 0,
+        "pause_occurred": true,
+        "pause_reason": "multistep_chunk_complete",
+        "net_pressure": 0.3387,
+        "fast_pressure": 0.0127,
+        "mid_pressure": 0.6398,
+        "slow_pressure": 0.1081,
+        "conditions_met": {
+          "fast_instability": false,
+          "negative_pressure": false,
+          "multistep_boundary": true
+        }
+      }
+    ]
+  ]
+}

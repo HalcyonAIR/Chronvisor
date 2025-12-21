@@ -1,0 +1,114 @@
+{
+  "test_texts": {
+    "Text1": "The cat sat on the mat. It was a sunny day.",
+    "Text2": "Machine learning models process data efficiently."
+  },
+  "results": {
+    "Text1": {
+      "real": {
+        "initial": {
+          "top1_mass": 0.17562872171401978,
+          "top2_mass": 0.33997082710266113,
+          "entropy": 2.0297164916992188
+        },
+        "final": {
+          "top1_mass": 0.19279171526432037,
+          "top2_mass": 0.38465818762779236,
+          "entropy": 1.974442720413208
+        },
+        "delta_top1_mass": 0.017162993550300598,
+        "delta_top2_mass": 0.044687360525131226,
+        "delta_entropy": -0.05527377128601074
+      },
+      "shuffled": {
+        "initial": {
+          "top1_mass": 0.2125624716281891,
+          "top2_mass": 0.37650299072265625,
+          "entropy": 2.028085470199585
+        },
+        "final": {
+          "top1_mass": 0.23839089274406433,
+          "top2_mass": 0.43811124563217163,
+          "entropy": 1.970886468887329
+        },
+        "delta_top1_mass": 0.025828421115875244,
+        "delta_top2_mass": 0.06160825490951538,
+        "delta_entropy": -0.05719900131225586
+      },
+      "random": {
+        "initial": {
+          "top1_mass": 0.38043349981307983,
+          "top2_mass": 0.6193624138832092,
+          "entropy": 1.579815149307251
+        },
+        "final": {
+          "top1_mass": 0.4913133680820465,
+          "top2_mass": 0.7267221808433533,
+          "entropy": 1.3386659622192383
+        },
+        "delta_top1_mass": 0.11087986826896667,
+        "delta_top2_mass": 0.10735976696014404,
+        "delta_entropy": -0.2411491870880127
+      }
+    },
+    "Text2": {
+      "real": {
+        "initial": {
+          "top1_mass": 0.24902573227882385,
+          "top2_mass": 0.4509286880493164,
+          "entropy": 1.8826875686645508
+        },
+        "final": {
+          "top1_mass": 0.3398275375366211,
+          "top2_mass": 0.5597394704818726,
+          "entropy": 1.6933040618896484
+        },
+        "delta_top1_mass": 0.09080180525779724,
+        "delta_top2_mass": 0.10881078243255615,
+        "delta_entropy": -0.18938350677490234
+      },
+      "shuffled": {
+        "initial": {
+          "top1_mass": 0.24653539061546326,
+          "top2_mass": 0.42920982837677,
+          "entropy": 1.9220796823501587
+        },
+        "final": {
+          "top1_mass": 0.333901047706604,
+          "top2_mass": 0.5340354442596436,
+          "entropy": 1.7303082942962646
+        },
+        "delta_top1_mass": 0.08736565709114075,
+        "delta_top2_mass": 0.10482561588287354,
+        "delta_entropy": -0.19177138805389404
+      },
+      "random": {
+        "initial": {
+          "top1_mass": 0.3286231458187103,
+          "top2_mass": 0.5590706467628479,
+          "entropy": 1.6719248294830322
+        },
+        "final": {
+          "top1_mass": 0.44429677724838257,
+          "top2_mass": 0.6736917495727539,
+          "entropy": 1.4180091619491577
+        },
+        "delta_top1_mass": 0.11567363142967224,
+        "delta_top2_mass": 0.114621102809906,
+        "delta_entropy": -0.2539156675338745
+      }
+    }
+  },
+  "avg_delta_by_variant": {
+    "real": 0.05398239940404892,
+    "shuffled": 0.056597039103507996,
+    "random": 0.11327674984931946
+  },
+  "avg_entropy_delta_by_variant": {
+    "real": -0.12232863903045654,
+    "shuffled": -0.12448519468307495,
+    "random": -0.2475324273109436
+  },
+  "real_vs_shuffled_ratio": 0.953802533908929,
+  "real_vs_random_ratio": 0.47655321527322153
+}

@@ -1,0 +1,18 @@
+{
+  "vanilla": {
+    "mode": "Vanilla",
+    "chronovisor_enabled": false,
+    "T_bar_drift": 0.0,
+    "entropy_B_virgin": 3.2163584232330322,
+    "entropy_A": 3.106497287750244,
+    "wear_detected": false
+  },
+  "chrono": {
+    "mode": "ChronoMoE",
+    "chronovisor_enabled": true,
+    "T_bar_drift": 0.029998057723596316,
+    "entropy_B_virgin": 3.2163584232330322,
+    "entropy_A": 3.106497287750244,
+    "wear_detected": false
+  }
+}

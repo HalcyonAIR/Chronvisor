@@ -1,0 +1,39 @@
+{
+  "text": "The cat sat on the mat. It was a sunny day.",
+  "num_repetitions": 100,
+  "eta_structural_T": 0.015,
+  "baseline": {
+    "sequence_averaged_entropy": 2.0297164916992188,
+    "per_token_entropy_mean": 1.0055649280548096,
+    "per_token_entropy_std": 0.5638836622238159
+  },
+  "vanilla": {
+    "kl_divergence": 0.0,
+    "entropy_A0": 2.0297164916992188,
+    "entropy_An": 2.0297164916992188,
+    "delta_entropy": 0.0,
+    "jaccard_similarity": 1.0,
+    "token_entropy_mean_A0": 1.0055649280548096,
+    "token_entropy_mean_An": 1.0055649280548096,
+    "token_entropy_variance_A0": 0.3179647922515869,
+    "token_entropy_variance_An": 0.3179647922515869
+  },
+  "chronomoe": {
+    "kl_divergence": 0.0007569193840026855,
+    "entropy_A0": 2.0297164916992188,
+    "entropy_An": 2.017577886581421,
+    "delta_entropy": -0.012138605117797852,
+    "jaccard_similarity": 1.0,
+    "token_entropy_mean_A0": 1.0055649280548096,
+    "token_entropy_mean_An": 0.9964703917503357,
+    "token_entropy_variance_A0": 0.3179647922515869,
+    "token_entropy_variance_An": 0.32208672165870667
+  },
+  "differential": {
+    "delta_kl": 0.0007569193840026855,
+    "delta_entropy": -0.012138605117797852,
+    "delta_jaccard": 0.0,
+    "T_bar_drift": 0.0561901330947876,
+    "wear_detected": false
+  }
+}

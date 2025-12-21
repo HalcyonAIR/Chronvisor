@@ -1,0 +1,118 @@
+{
+  "single_turn": {
+    "mode": "single_turn",
+    "total_chunks": 10,
+    "total_tokens": 150,
+    "entropies": [
+      0.6458917105188837,
+      0.5837065588424669,
+      0.556975243238561,
+      0.5469164516473884,
+      0.5418665859388241,
+      0.5337907861295834,
+      0.52505330973778,
+      0.5266876638034163,
+      0.5265577197434952,
+      0.525739354491731
+    ],
+    "mean_entropy": 0.551318538409213,
+    "entropy_trend": -0.010342522428187685,
+    "pressures": {
+      "net": [
+        0.3056044751642974,
+        0.3696450367387495,
+        0.41357606100616345,
+        0.4437218050161856,
+        0.4647324603398866,
+        0.4798396257389238,
+        0.4907627063921693,
+        0.49810278862521656,
+        0.5033390020363637,
+        0.5069701478956962
+      ],
+      "fast": [
+        -0.15435362557548332,
+        -0.1415960095043221,
+        -0.1365658259100693,
+        -0.13562660623620235,
+        -0.13538313873802324,
+        -0.13339036393625264,
+        -0.1307107644892459,
+        -0.13117973905160232,
+        -0.1311156544008293,
+        -0.13100772496096202
+      ],
+      "mid": [
+        0.6405190970662965,
+        0.6404340935813724,
+        0.6402246550998112,
+        0.6400038265425407,
+        0.6398828653496214,
+        0.6398655074009161,
+        0.6399725789662566,
+        0.6402372016250418,
+        0.6404108447764877,
+        0.6404516910924851
+      ]
+    },
+    "pause_reasons": {},
+    "suggestions": []
+  },
+  "multistep": {
+    "mode": "multistep",
+    "total_chunks": 1,
+    "total_tokens": 15,
+    "entropies": [
+      0.5542997620505449
+    ],
+    "mean_entropy": 0.5542997620505449,
+    "entropy_trend": 0.0,
+    "pressures": {
+      "net": [
+        0.308932086042828
+      ],
+      "fast": [
+        -0.13756527566661567
+      ],
+      "mid": [
+        0.6404589788598107
+      ]
+    },
+    "pause_reasons": {
+      "multistep_chunk_complete": 1
+    },
+    "suggestions": [
+      "Multistep paused after 1 chunk (expected non-agentic behavior)",
+      "To compare with single-turn, need to either:",
+      "  1. Run single-turn for comparison",
+      "  2. Implement interactive continuation"
+    ]
+  },
+  "differences": {
+    "chunks_generated": {
+      "single_turn": 10,
+      "multistep": 1,
+      "difference": 9
+    },
+    "mean_entropy": {
+      "single_turn": 0.551318538409213,
+      "multistep": 0.5542997620505449,
+      "difference": -0.0029812236413319093
+    },
+    "entropy_trend": {
+      "single_turn": -0.010342522428187685,
+      "multistep": 0.0,
+      "difference": -0.010342522428187685
+    }
+  },
+  "insights": [
+    "\u2713 Non-agentic verified: multistep paused after 1 chunk(s)",
+    "\u26a0 Entropy values similar - may be using placeholder signals",
+    "  Action: Verify signal extraction from chrono_state.routing_entropy"
+  ],
+  "next_steps": [
+    "If entropy is placeholder: Fix signal extraction",
+    "If multistep paused early: Implement interactive continuation",
+    "If ready for real testing: Run on full Mixtral with real prompts"
+  ]
+}
