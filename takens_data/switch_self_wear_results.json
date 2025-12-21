@@ -1,0 +1,28 @@
+{
+  "text": "The cat sat on the mat. It was a sunny day.",
+  "num_repetitions": 100,
+  "baseline": {
+    "entropy": 2.0297164916992188,
+    "max_entropy": 2.0794415416798357,
+    "routing_distribution": [
+      0.07022355496883392,
+      0.17562872171401978,
+      0.09799467772245407,
+      0.15062862634658813,
+      0.1514236181974411,
+      0.11560235172510147,
+      0.07415632903575897,
+      0.16434213519096375
+    ]
+  },
+  "vanilla": {
+    "kl_divergence": 0.0,
+    "entropy_A0": 2.0297164916992188,
+    "entropy_An": 2.0297164916992188,
+    "delta_entropy": 0.0,
+    "jaccard_similarity": 1.0,
+    "token_entropy_variance_A0": 0.3179647922515869,
+    "token_entropy_variance_An": 0.3179647922515869,
+    "delta_variance": 0.0
+  }
+}

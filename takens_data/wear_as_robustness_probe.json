@@ -1,0 +1,61 @@
+{
+  "text": "Machine learning models process data efficiently.",
+  "random_seed_stability": {
+    "top_experts": [
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "expert_counts": {
+      "2": 5
+    },
+    "real_top_experts": [
+      7,
+      7,
+      7,
+      7,
+      7
+    ]
+  },
+  "ood_ladder": {
+    "real": {
+      "initial_margin": 1.3447012901306152,
+      "final_margin": 1.1963039636611938,
+      "initial_entropy": 1.8826875686645508,
+      "final_entropy": 1.6933040618896484,
+      "delta_entropy": -0.18938350677490234,
+      "top_expert": 7,
+      "top_expert_mass": 0.3398275375366211
+    },
+    "word_salad": {
+      "initial_margin": 1.0514506101608276,
+      "final_margin": 1.1652922630310059,
+      "initial_entropy": 1.9220796823501587,
+      "final_entropy": 1.7303082942962646,
+      "delta_entropy": -0.19177138805389404,
+      "top_expert": 7,
+      "top_expert_mass": 0.333901047706604
+    },
+    "random_vocab": {
+      "initial_margin": 0.5245645046234131,
+      "final_margin": 0.432111918926239,
+      "initial_entropy": 1.6874735355377197,
+      "final_entropy": 1.4006140232086182,
+      "delta_entropy": -0.28685951232910156,
+      "top_expert": 2,
+      "top_expert_mass": 0.46844151616096497
+    },
+    "uniform_random": {
+      "initial_margin": 0.8220404386520386,
+      "final_margin": 0.7902924418449402,
+      "initial_entropy": 1.8116052150726318,
+      "final_entropy": 1.5817203521728516,
+      "delta_entropy": -0.22988486289978027,
+      "top_expert": 2,
+      "top_expert_mass": 0.4565497934818268
+    }
+  },
+  "correlation_margin_wear": -0.9347532063710744
+}

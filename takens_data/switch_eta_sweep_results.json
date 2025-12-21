@@ -1,0 +1,148 @@
+{
+  "eta_values": [
+    0.0,
+    0.0025,
+    0.005,
+    0.01,
+    0.015,
+    0.02,
+    0.03,
+    0.05,
+    0.075,
+    0.1
+  ],
+  "n_repetitions": 100,
+  "results": [
+    {
+      "eta": 0.0,
+      "T_bar_drift": 0.0,
+      "T_bar_range": [
+        1.0,
+        1.0
+      ],
+      "kl_divergence": 0.0,
+      "delta_entropy": 0.0,
+      "token_delta_entropy": 0.0,
+      "entropy_variance_ratio": 0.9999999998226584,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.0025,
+      "T_bar_drift": 0.008957207202911377,
+      "T_bar_range": [
+        0.9859221577644348,
+        1.0130037069320679
+      ],
+      "kl_divergence": 1.936967601068318e-05,
+      "delta_entropy": -0.001856088638305664,
+      "token_delta_entropy": -0.0014190673828125,
+      "entropy_variance_ratio": 1.0010906516111107,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.005,
+      "T_bar_drift": 0.01807776838541031,
+      "T_bar_range": [
+        0.9716219902038574,
+        1.0261951684951782
+      ],
+      "kl_divergence": 7.927278056740761e-05,
+      "delta_entropy": -0.003783702850341797,
+      "token_delta_entropy": -0.002880692481994629,
+      "entropy_variance_ratio": 1.0021808805843706,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.01,
+      "T_bar_drift": 0.03681985288858414,
+      "T_bar_range": [
+        0.9423415064811707,
+        1.0531481504440308
+      ],
+      "kl_divergence": 0.0003299072850495577,
+      "delta_entropy": -0.007866382598876953,
+      "token_delta_entropy": -0.0059400200843811035,
+      "entropy_variance_ratio": 1.0043577446017564,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.015,
+      "T_bar_drift": 0.05625040829181671,
+      "T_bar_range": [
+        0.9121285080909729,
+        1.0808758735656738
+      ],
+      "kl_divergence": 0.0007731204386800528,
+      "delta_entropy": -0.012274742126464844,
+      "token_delta_entropy": -0.009194135665893555,
+      "entropy_variance_ratio": 1.006525200981114,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.02,
+      "T_bar_drift": 0.07639310508966446,
+      "T_bar_range": [
+        0.8809539675712585,
+        1.10939359664917
+      ],
+      "kl_divergence": 0.001432651886716485,
+      "delta_entropy": -0.01703786849975586,
+      "token_delta_entropy": -0.012662410736083984,
+      "entropy_variance_ratio": 1.0086744763072044,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.03,
+      "T_bar_drift": 0.11891764402389526,
+      "T_bar_range": [
+        0.8155850172042847,
+        1.1688642501831055
+      ],
+      "kl_divergence": 0.003510397393256426,
+      "delta_entropy": -0.027767658233642578,
+      "token_delta_entropy": -0.020328938961029053,
+      "entropy_variance_ratio": 1.0128673231613183,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.05,
+      "T_bar_drift": 0.21372061967849731,
+      "T_bar_range": [
+        0.6717167496681213,
+        1.29808509349823
+      ],
+      "kl_divergence": 0.011702973395586014,
+      "delta_entropy": -0.05527377128601074,
+      "token_delta_entropy": -0.039413392543792725,
+      "entropy_variance_ratio": 1.0201402729872981,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.075,
+      "T_bar_drift": 0.3486880958080292,
+      "T_bar_range": [
+        0.49349045753479004,
+        1.4807184934616089
+      ],
+      "kl_divergence": 0.03263592720031738,
+      "delta_entropy": -0.10348820686340332,
+      "token_delta_entropy": -0.07180523872375488,
+      "entropy_variance_ratio": 1.0226671222800827,
+      "stability": "smooth"
+    },
+    {
+      "eta": 0.1,
+      "T_bar_drift": 0.4530717730522156,
+      "T_bar_range": [
+        0.4911332130432129,
+        1.7060940265655518
+      ],
+      "kl_divergence": 0.048321083188056946,
+      "delta_entropy": -0.13283371925354004,
+      "token_delta_entropy": -0.08341085910797119,
+      "entropy_variance_ratio": 1.0251790673373398,
+      "stability": "smooth"
+    }
+  ],
+  "text": "The cat sat on the mat. It was a sunny day."
+}
